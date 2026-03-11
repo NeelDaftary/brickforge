@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --color-primary: #B40000;
+    --color-secondary: #FFD500;
+    --color-bg: #F7F6F2;
+    --color-surface: #FFFFFF;
+    --color-surface-alt: #F9F8F5;
+    --color-border: #E8E7E2;
+    --color-border-subtle: #EEEEEE;
+    --color-border-input: #DDDDDD;
+    --color-text: #1A1A1A;
+    --color-text-secondary: #888888;
+    --color-text-muted: #999999;
+    --color-text-faint: #BBBBBB;
+    --color-text-ghost: #CCCCCC;
+    --color-success: #E8F5E9;
+    --color-success-text: #2E7D32;
+    --color-warning: #FFF8E1;
+    --color-warning-border: #FFE082;
+    --color-error: #B40000;
+    --color-link: #0055BF;
+  }
+
+  html {
+    font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif;
+  }
+
+  body {
+    @apply bg-surface-bg text-[#1A1A1A] antialiased;
+  }
+}
