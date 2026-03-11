@@ -11,7 +11,7 @@ Pipeline:
   4. Apply GN modifier to realize cube instances
   5. Extract cube centers via BMesh island detection (BFS)
   6. Sample colors via BVHTree.find_nearest() on the original mesh copy
-  7. Convert Blender linear RGB → sRGB → OKLCH → nearest LEGO color
+  7. Convert Blender linear RGB → OKLCH → nearest LEGO color
   8. Map world positions to grid indices
   9. Output {color_legend, grid[x][y][z]} JSON
 
@@ -27,7 +27,6 @@ Usage:
 
 import argparse
 import json
-import math
 import os
 import sys
 from collections import deque
@@ -38,136 +37,15 @@ import bmesh
 from mathutils import Vector
 from mathutils.bvhtree import BVHTree
 
+SCRIPTS_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPTS_DIR not in sys.path:
+    sys.path.insert(0, SCRIPTS_DIR)
 
-# ─── LEGO Color Palette (must match color-palette.ts) ────────────────────────
-
-LEGO_COLORS = {
-    "#FFFFFF": "W",   # White
-    "#D9BB7A": "T",   # Tan
-    "#FFD500": "Y",   # Yellow
-    "#FF7E14": "O",   # Orange
-    "#F7BA30": "A",   # Bright Light Orange
-    "#DB0000": "R",   # Red
-    "#FF5A7E": "P",   # Bright Pink
-    "#A1223B": "M",   # Dark Red
-    "#B11585": "X",   # Magenta
-    "#2DBE2D": "E",   # Green
-    "#A6CA1E": "L",   # Lime
-    "#007B28": "F",   # Dark Green
-    "#7C8C3C": "J",   # Olive Green
-    "#76A290": "S",   # Sand Green
-    "#0059CF": "B",   # Blue
-    "#1A85E0": "C",   # Medium Blue
-    "#003987": "I",   # Dark Blue
-    "#8B1FA0": "V",   # Purple
-    "#6C3A20": "H",   # Reddish Brown
-    "#583927": "N",   # Brown
-    "#897D62": "Q",   # Dark Tan
-    "#E3A05B": "U",   # Medium Nougat
-    "#101010": "K",   # Black
-    "#A0A5A9": "G",   # Light Grey
-    "#5A5A5A": "D",   # Dark Grey
-}
-
-SYMBOL_TO_HEX = {v: k for k, v in LEGO_COLORS.items()}
-
-
-# ─── OKLCH Perceptual Color Matching ─────────────────────────────────────────
-
-def _srgb_to_linear(c: float) -> float:
-    """sRGB gamma → linear."""
-    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
-
-
-def _linear_to_srgb(c: float) -> float:
-    """Linear → sRGB gamma. Needed for Blender's linear color space."""
-    c = max(0.0, min(1.0, c))
-    return 12.92 * c if c <= 0.0031308 else 1.055 * (c ** (1.0 / 2.4)) - 0.055
-
-
-def _linear_rgb_to_oklab(r: float, g: float, b: float) -> Tuple[float, float, float]:
-    """Linear RGB → Oklab (L, a, b). Matrices from Bjorn Ottosson."""
-    l_ = 0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b
-    m_ = 0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b
-    s_ = 0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b
-
-    l = math.copysign(abs(l_) ** (1 / 3), l_) if l_ != 0 else 0.0
-    m = math.copysign(abs(m_) ** (1 / 3), m_) if m_ != 0 else 0.0
-    s = math.copysign(abs(s_) ** (1 / 3), s_) if s_ != 0 else 0.0
-
-    L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
-    a = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
-    b_val = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
-    return (L, a, b_val)
-
-
-def _oklab_to_oklch(L: float, a: float, b: float) -> Tuple[float, float, float]:
-    """Oklab → OKLCH (L, C, h)."""
-    C = math.sqrt(a * a + b * b)
-    h = math.degrees(math.atan2(b, a))
-    if h < 0:
-        h += 360.0
-    return (L, C, h)
-
-
-def _rgb_to_oklch(r: float, g: float, b: float) -> Tuple[float, float, float]:
-    """Normalized sRGB [0-1] → OKLCH (L, C, h)."""
-    lr = _srgb_to_linear(r)
-    lg = _srgb_to_linear(g)
-    lb = _srgb_to_linear(b)
-    L, a, b_val = _linear_rgb_to_oklab(lr, lg, lb)
-    return _oklab_to_oklch(L, a, b_val)
-
-
-_W_L = 1.0
-_W_C = 1.5
-_W_H = 1.0
-
-
-def _oklch_distance(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
-    """Weighted OKLCH distance with chord-based hue difference."""
-    dL = a[0] - b[0]
-    dC = a[1] - b[1]
-    avg_C = math.sqrt(a[1] * b[1])
-    dh = a[2] - b[2]
-    if dh > 180:
-        dh -= 360
-    if dh < -180:
-        dh += 360
-    dh_chord = 2 * avg_C * math.sin(math.radians(dh / 2))
-    return math.sqrt(_W_L * dL * dL + _W_C * dC * dC + _W_H * dh_chord * dh_chord)
-
-
-def _hex_to_rgb(hex_color: str) -> Tuple[float, float, float]:
-    h = hex_color.lstrip("#")
-    return (int(h[0:2], 16) / 255.0, int(h[2:4], 16) / 255.0, int(h[4:6], 16) / 255.0)
-
-
-_PALETTE_OKLCH = {
-    hex_color: _rgb_to_oklch(*_hex_to_rgb(hex_color))
-    for hex_color in LEGO_COLORS
-}
-
-
-def nearest_lego_color_srgb(rgb: Tuple[float, float, float]) -> str:
-    """Find nearest LEGO color from sRGB [0-1] input."""
-    input_oklch = _rgb_to_oklch(*rgb)
-    best_hex = "#A0A5A9"
-    best_dist = float("inf")
-    for hex_color, palette_oklch in _PALETTE_OKLCH.items():
-        dist = _oklch_distance(input_oklch, palette_oklch)
-        if dist < best_dist:
-            best_dist = dist
-            best_hex = hex_color
-    return best_hex
-
-
-def nearest_lego_color_linear(r: float, g: float, b: float) -> str:
-    """Find nearest LEGO color from Blender linear RGB [0-1] input."""
-    sr = _linear_to_srgb(r)
-    sg = _linear_to_srgb(g)
-    sb = _linear_to_srgb(b)
-    return nearest_lego_color_srgb((sr, sg, sb))
+from color_quantization import (
+    LEGO_COLORS,
+    SYMBOL_TO_HEX,
+    linear_rgb_to_nearest_lego_hex,
+)
 
 
 # ─── Import non-.blend files ─────────────────────────────────────────────────
@@ -345,17 +223,18 @@ def sample_color_at_point(
             idx = (py * image.size[0] + px) * stride
 
             if idx + 2 < len(pixels):
-                # Image pixels are in linear space in Blender
+                # Blender image pixels are already linear, so quantize directly
+                # instead of round-tripping through sRGB before OKLCH matching.
                 r_lin, g_lin, b_lin = pixels[idx], pixels[idx + 1], pixels[idx + 2]
-                return nearest_lego_color_linear(r_lin, g_lin, b_lin)
+                return linear_rgb_to_nearest_lego_hex((r_lin, g_lin, b_lin))
 
     # Path 2: Flat Base Color from Principled BSDF
     if principled:
         base_color_input = principled.inputs.get("Base Color")
         if base_color_input and not base_color_input.is_linked:
             rgba = base_color_input.default_value
-            # Principled BSDF Base Color default_value is in linear space
-            return nearest_lego_color_linear(rgba[0], rgba[1], rgba[2])
+            # Principled BSDF Base Color default_value is in linear space.
+            return linear_rgb_to_nearest_lego_hex((rgba[0], rgba[1], rgba[2]))
 
     return "G"
 
@@ -572,15 +451,10 @@ def run_pipeline(
     # Step 2: Get a voxelized mesh
     obj = bpy.data.objects.get(object_name)
 
-    if already_voxelized:
-        # .blend path — object already has GN voxelizer modifier.
-        # Just realize the instances and apply.
-        has_gn = any(m.type == 'NODES' for m in obj.modifiers)
-        if not has_gn:
-            raise ValueError(
-                f"Object '{object_name}' has no Geometry Nodes modifier. "
-                "Apply the BrickForge voxelizer in Blender first, or upload a non-.blend mesh."
-            )
+    has_gn = any(m.type == 'NODES' for m in obj.modifiers)
+
+    if already_voxelized and has_gn:
+        # .blend path with existing GN voxelizer — realize instances.
         print(f"[LOG] .blend path — realizing existing GN voxelizer on '{object_name}'")
         _realize_gn_modifier(obj)
     else:
@@ -593,9 +467,6 @@ def run_pipeline(
             if mod.type == 'NODES':
                 obj.modifiers.remove(mod)
 
-        scripts_dir = os.path.dirname(os.path.abspath(__file__))
-        if scripts_dir not in sys.path:
-            sys.path.insert(0, scripts_dir)
         from voxelize_with_color import voxelize_object
 
         voxelize_object(object_name=object_name, voxel_size=voxel_size, with_color=False)

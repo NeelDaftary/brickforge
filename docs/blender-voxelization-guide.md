@@ -1,8 +1,7 @@
 # BrickForge — Blender Voxelization with Color Guide
 
-**Purpose:** Step-by-step instructions for voxelizing any 3D model in Blender
-while preserving its original texture colors. The output is a grid of cubes
-that can be exported and fed into the BrickForge LEGO pipeline.
+**Purpose:** Step-by-step instructions for building a voxelized
+BrickForge-ready `.blend` in Blender while preserving original colors.
 
 **Script:** `scripts/blender/voxelize_with_color.py` implements all steps
 below as an automated Blender Python script.
@@ -21,7 +20,7 @@ below as an automated Blender Python script.
 │  3. Voxel Size Control  │  Single Value node drives resolution everywhere
 │  4. Color Transfer      │  UV sampling chain preserves original texture
 │  5. Shader Patch        │  Attribute node reads instancer UVs
-│  6. Export              │  Apply modifier → export GLB/PLY
+│  6. Upload              │  Save .blend → upload to BrickForge
 └─────────────────────────┘
     │
     ▼
@@ -228,31 +227,18 @@ Each voxel cube now samples the correct texture color from the original model.
 
 ---
 
-## Step 7 — Final Adjustments
+## Step 7 — Upload to BrickForge
 
-### Rotation
+### Option A: Upload `.blend` directly (recommended)
 
-- **Edit Mode rotation** — Rotates the underlying mesh; cubes stay
-  axis-aligned (upright). Use this for reorienting the model.
-- **Object Mode rotation** — Rotates the cubes too, creating a diagonal
-  voxel look.
+1. Keep the GN modifier **unapplied** — BrickForge realizes it during upload.
+2. Keep source materials/UVs intact on the original mesh.
+3. Save and upload the `.blend` file.
+4. Set voxel size in the upload UI slider.
 
-### Export for BrickForge Pipeline
-
-1. Select the voxelized object.
-2. Apply the Geometry Nodes modifier (`Ctrl+A` in Modifier Properties).
-3. Export as GLB: `File > Export > glTF 2.0 (.glb)`
-   - Enable "Selection Only"
-   - Enable "Apply Modifiers"
-4. The exported file can be fed into `prep_mesh_for_voxelizer.py` to bake
-   LEGO palette colors, then into the BrickForge voxelization pipeline.
-
-### Automated Script
-
-Instead of building nodes manually, use the provided script:
+### Option B: Use the automation script
 
 ```bash
-# Basic voxelization (Geometry Nodes only, view in Blender)
 blender --background scene.blend --python scripts/blender/voxelize_with_color.py -- \
   --object MyModel \
   --voxel-size 0.05
@@ -262,15 +248,9 @@ blender --background scene.blend --python scripts/blender/voxelize_with_color.py
   --object MyModel \
   --voxel-size 0.05 \
   --output /tmp/my_model_voxelized.glb
-
-# Without color transfer (shape only)
-blender --background scene.blend --python scripts/blender/voxelize_with_color.py -- \
-  --object MyModel \
-  --voxel-size 0.1 \
-  --no-color
 ```
 
-Or call from Python / Blender console:
+Or from Blender's Python console:
 
 ```python
 from scripts.blender.voxelize_with_color import voxelize_object
@@ -339,7 +319,7 @@ voxelize_object("Pikachu", voxel_size=0.05, with_color=True)
 |---------|-------|-----|
 | Blender freezes/crashes | Voxel size too small | Increase voxel size (start at 0.1+) |
 | No voxels visible | Fill Volume is on, or band widths are wrong | Turn off Fill Volume, set Exterior Band Width to 0 |
-| All cubes are one color | Missing color transfer nodes | Follow Steps 5-6 |
+| All cubes are one color | Missing color transfer nodes or no valid source color | Follow Steps 5-6 and keep source materials/UVs intact |
 | Cubes are white/pink | Material not assigned in Set Material | Select the correct material |
 | UVs look wrong on cubes | Attribute node not set to Instancer | Check shader patch (Step 6) |
 | Gaps between cubes | Cube size doesn't match spacing | Ensure both are driven by the same Value node |

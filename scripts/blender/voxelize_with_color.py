@@ -56,6 +56,17 @@ def prepare_model(obj: bpy.types.Object) -> None:
             bpy.ops.object.modifier_apply(modifier=mod.name)
 
 
+def remove_existing_brickforge_voxelizer(obj: bpy.types.Object) -> int:
+    """Remove prior BrickForge voxelizer modifiers so prep can be re-run safely."""
+    removed = 0
+    for mod in list(obj.modifiers):
+        node_group_name = mod.node_group.name if mod.type == "NODES" and mod.node_group else ""
+        if mod.name == "BrickForge_Voxelizer" or node_group_name == "BF_Voxelizer":
+            obj.modifiers.remove(mod)
+            removed += 1
+    return removed
+
+
 # ---------------------------------------------------------------------------
 # Step 2 & 3 — Build the Geometry Nodes voxelizer
 # ---------------------------------------------------------------------------
@@ -339,6 +350,9 @@ def voxelize_object(
         raise ValueError(f"Object not found: {object_name}")
 
     prepare_model(obj)
+    removed = remove_existing_brickforge_voxelizer(obj)
+    if removed:
+        print(f"[LOG] Removed {removed} existing BrickForge voxelizer modifier(s) from '{obj.name}'")
     mod = build_voxelizer(obj, voxel_size=voxel_size)
 
     if with_color:

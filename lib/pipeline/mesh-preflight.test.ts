@@ -5,59 +5,22 @@ import { describe, expect, it } from 'vitest';
 import { preflightMeshPath } from './mesh-preflight';
 
 describe('preflightMeshPath', () => {
-  it('passes OBJ + MTL with usemtl as ready', async () => {
+  it('accepts .blend as supported format', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
     try {
-      const objPath = path.join(dir, 'model.obj');
-      const mtlPath = path.join(dir, 'model.mtl');
+      const blendPath = path.join(dir, 'model.blend');
+      await writeFile(blendPath, 'placeholder');
 
-      await writeFile(mtlPath, 'newmtl Red\nKd 1.0 0.0 0.0\n');
-      await writeFile(
-        objPath,
-        [
-          'mtllib model.mtl',
-          'v 0 0 0',
-          'v 1 0 0',
-          'v 0 1 0',
-          'usemtl Red',
-          'f 1 2 3',
-          '',
-        ].join('\n'),
-      );
-
-      const result = await preflightMeshPath(objPath);
+      const result = await preflightMeshPath(blendPath);
       expect(result.shouldProceed).toBe(true);
+      expect(result.format).toBe('blend');
       expect(result.errors).toHaveLength(0);
-      expect(result.objMeta?.missingMtlFiles).toHaveLength(0);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
   });
 
-  it('warns when OBJ is missing MTL', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
-    try {
-      const objPath = path.join(dir, 'model.obj');
-      await writeFile(
-        objPath,
-        [
-          'v 0 0 0',
-          'v 1 0 0',
-          'v 0 1 0',
-          'f 1 2 3',
-          '',
-        ].join('\n'),
-      );
-
-      const result = await preflightMeshPath(objPath);
-      expect(result.shouldProceed).toBe(true);
-      expect(result.warnings.join(' ')).toContain('does not reference an MTL');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts glb as supported format', async () => {
+  it('accepts .glb as supported format', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
     try {
       const glbPath = path.join(dir, 'model.glb');
@@ -66,10 +29,28 @@ describe('preflightMeshPath', () => {
       const result = await preflightMeshPath(glbPath);
       expect(result.shouldProceed).toBe(true);
       expect(result.format).toBe('glb');
-      expect(result.errors).toHaveLength(0);
-      expect(result.recommendations.join(' ')).toContain('Best format');
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('rejects unsupported formats', async () => {
+    const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
+    try {
+      const fbxPath = path.join(dir, 'model.fbx');
+      await writeFile(fbxPath, 'placeholder');
+
+      const result = await preflightMeshPath(fbxPath);
+      expect(result.shouldProceed).toBe(false);
+      expect(result.format).toBe('unknown');
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('errors when file does not exist', async () => {
+    const result = await preflightMeshPath('/tmp/nonexistent.blend');
+    expect(result.shouldProceed).toBe(false);
+    expect(result.errors[0]).toContain('does not exist');
   });
 });

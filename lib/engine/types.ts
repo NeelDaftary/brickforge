@@ -30,7 +30,6 @@ export interface BrickInstance {
   color: string;       // Hex code
   step: number;        // Which step this brick is added
   metadata?: {
-    usedAny?: boolean; // True when this brick consumed wildcard "any" AI cells
     gx?: number; gy?: number; gz?: number; // Grid origin
     gw?: number; gd?: number;              // Grid extent (studs)
   };

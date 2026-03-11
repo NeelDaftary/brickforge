@@ -1,11 +1,10 @@
 /**
  * BrickForge v3 — Voxelization Pipeline: mesh → preflight → Blender GN voxelizer → TS brick optimizer.
  *
- * Replaces the v2 Python trimesh voxelizer with Blender Geometry Nodes.
  * Calls blender_voxel_to_grid.py via Blender subprocess.
  */
 
-import { readFile, mkdir, rm } from 'node:fs/promises';
+import { readFile, mkdir, rm, access } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
@@ -14,7 +13,10 @@ import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-b
 import { preflightMeshPath, type MeshPreflightResult } from '@/lib/pipeline/mesh-preflight';
 import { checkBrickStability } from '@/lib/pipeline/brick-stability';
 import type { BrickModelData } from '@/lib/engine/types';
-import { BLENDER_VOXEL_TO_GRID_SCRIPT, TMP_VOXELS_DIR } from '@/lib/pipeline/paths';
+import {
+  BLENDER_VOXEL_TO_GRID_SCRIPT,
+  TMP_VOXELS_DIR,
+} from '@/lib/pipeline/paths';
 
 const execFileAsync = promisify(execFile);
 
@@ -24,14 +26,13 @@ function getBlenderBinary(): string {
   if (process.env.BLENDER_PATH) {
     return process.env.BLENDER_PATH;
   }
-  // Platform defaults
   if (process.platform === 'darwin') {
     return '/Applications/Blender.app/Contents/MacOS/Blender';
   }
   if (process.platform === 'win32') {
     return 'C:\\Program Files\\Blender Foundation\\Blender\\blender.exe';
   }
-  return 'blender'; // Linux: assume on PATH
+  return 'blender';
 }
 
 export async function validateBlenderBinary(): Promise<{ valid: boolean; version?: string; error?: string }> {
@@ -106,11 +107,9 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
 
   const runId = `${Date.now()}-${randomUUID()}`;
   const outputPath = path.join(TMP_VOXELS_DIR, `${runId}.voxels.json`);
-  const scriptPath = BLENDER_VOXEL_TO_GRID_SCRIPT;
   const blenderBin = getBlenderBinary();
 
   try {
-    // Build Blender command args
     const blenderArgs: string[] = ['--background'];
     const scriptArgs: string[] = [
       '--voxel-size', String(voxelSize),
@@ -118,27 +117,31 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     ];
 
     if (preflight.format === 'blend') {
-      // .blend file: open it directly
-      blenderArgs.splice(1, 0, preflight.resolvedPath); // insert after --background
+      blenderArgs.splice(1, 0, preflight.resolvedPath);
       if (options.objectName) {
         scriptArgs.push('--object', options.objectName);
       }
     } else {
-      // Non-.blend: import into empty Blender scene
       scriptArgs.push('--import', preflight.resolvedPath);
     }
 
-    blenderArgs.push('--python', scriptPath, '--', ...scriptArgs);
+    blenderArgs.push('--python', BLENDER_VOXEL_TO_GRID_SCRIPT, '--', ...scriptArgs);
 
     console.log(`[Pipeline] Running: ${blenderBin} ${blenderArgs.join(' ')}`);
 
     const { stdout, stderr } = await execFileAsync(blenderBin, blenderArgs, {
-      timeout: 600000, // 10 minutes for large models
+      timeout: 600000,
       maxBuffer: 10 * 1024 * 1024,
     });
 
     if (stdout) console.log('Blender:', stdout.slice(0, 1000));
-    if (stderr) console.error('Blender stderr:', stderr.slice(0, 500));
+    if (stderr) console.error('Blender stderr:', stderr.slice(0, 1500));
+
+    const outputExists = await access(outputPath).then(() => true).catch(() => false);
+    if (!outputExists) {
+      const details = stderr?.trim().slice(0, 1500) || stdout?.trim().slice(0, 1500) || 'Blender completed without producing voxel output.';
+      throw new PipelineError(`Blender voxelizer did not produce output JSON. ${details}`, preflight);
+    }
 
     // Read grid JSON output
     const voxelRaw = await readFile(outputPath, 'utf8');
@@ -146,7 +149,6 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     const grid: string[][][] = voxelJson.grid;
     const colorLegend: Record<string, string> = voxelJson.color_legend;
 
-    // Derive gridSize from actual grid dimensions
     const gridSize = Math.max(
       grid.length,
       grid[0]?.length ?? 0,
@@ -160,17 +162,10 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     const ACHROMATIC_SYMBOLS = new Set(['G', 'D', 'K', 'W', 'T']);
     const legendKeys = Object.keys(colorLegend);
     if (legendKeys.length > 0 && legendKeys.every((k) => ACHROMATIC_SYMBOLS.has(k))) {
-      if (preflight.format === 'blend') {
-        warnings.push(
-          'Colors appear monochrome — the .blend file may not have UV-mapped textures or materials. ' +
-          'Ensure the mesh has a Principled BSDF material with an Image Texture or a solid Base Color.',
-        );
-      } else {
-        warnings.push(
-          'Colors appear monochrome — mesh materials may not have been recognized. ' +
-          'For best results, use a .blend file with UV-mapped textures.',
-        );
-      }
+      warnings.push(
+        'Colors appear monochrome — mesh materials may not have been recognized. ' +
+        'For best results, use a mesh with UV-mapped textures or a Principled BSDF base color.',
+      );
     }
 
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
