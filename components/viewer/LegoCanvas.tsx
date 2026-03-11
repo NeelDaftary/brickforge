@@ -11,6 +11,7 @@ import { checkGridStability, type GridStabilityResult } from '@/lib/pipeline/bri
 import { BrickScene, type ViewMode } from './BrickScene';
 import { BuildStepsPanel } from './BuildStepsPanel';
 import { EditToolbar, type EditTool } from './EditToolbar';
+type TopTab = 'complete' | 'step' | 'paint' | 'build';
 import { ReferenceImages } from './ReferenceImages';
 
 interface LegoCanvasProps {
@@ -71,10 +72,33 @@ function gridTo1x1Model(
   return { name, description: '', totalBricks: bricks.length, bricks };
 }
 
+function computeModelExtent(model: BrickModelData): number {
+  if (model.voxelData) {
+    const g = model.voxelData;
+    const sx = g.grid.length;
+    const sy = sx > 0 ? g.grid[0].length : 0;
+    const sz = sy > 0 ? g.grid[0][0].length : 0;
+    return Math.max(sx, sy, sz * 1.2);
+  }
+  let maxExtent = 10;
+  for (const b of model.bricks) {
+    const ex = Math.abs(b.position[0]) + (b.studWidth ?? 1);
+    const ez = Math.abs(b.position[2]) + (b.studDepth ?? 1);
+    maxExtent = Math.max(maxExtent, ex * 2, ez * 2);
+  }
+  return maxExtent;
+}
+
 export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('complete');
   const [currentStep, setCurrentStep] = useState(1);
   const maxStep = useMemo(() => getMaxStep(model), [model]);
+
+  // Adaptive camera based on model size
+  const extent = useMemo(() => computeModelExtent(model), [model]);
+  const camDist = Math.max(14, extent * 1.2);
+  const camZoom = Math.max(10, Math.min(45, 600 / extent));
+  const camFar = Math.max(200, camDist * 6);
 
   // ─── Edit mode state ──────────────────────────────────────────────
   const [editMode, setEditMode] = useState(false);
@@ -156,22 +180,6 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
 
   // ─── Enter/exit edit mode ─────────────────────────────────────────────
 
-  const enterEditMode = useCallback(() => {
-    if (!voxelData) return;
-    const grid = cloneGrid(voxelData.grid);
-    setEditMode(true);
-    setEditTool('paint');
-    setActiveLayer(0);
-    setEditedGrid(grid);
-    setChangeCount(0);
-    setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
-    setViewMode('complete');
-    // Run initial stability check
-    const result = checkGridStability(grid);
-    setUnstableCells(result.unstable);
-    setMarginalCells(result.marginal);
-  }, [voxelData, fullLegend, model.name]);
-
   const cancelEdit = useCallback(() => {
     setEditMode(false);
     setEditTool('paint');
@@ -182,7 +190,58 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
     setVoxelModel(null);
     setUnstableCells(new Set());
     setMarginalCells(new Set());
+    setViewMode('complete');
   }, []);
+
+  // Derive which top tab is active
+  const activeTab: TopTab = editMode
+    ? editTool === 'paint' ? 'paint' : 'build'
+    : viewMode === 'step' ? 'step' : 'complete';
+
+  const handleTabChange = useCallback((tab: TopTab) => {
+    if (tab === 'complete' || tab === 'step') {
+      if (editMode && changeCount > 0) return; // don't leave edit with unsaved changes
+      if (editMode) cancelEdit();
+      setViewMode(tab);
+    } else if (tab === 'paint') {
+      if (!canEdit) return;
+      if (editMode) {
+        setEditTool('paint');
+      } else {
+        // Enter edit mode with paint tool
+        if (!voxelData) return;
+        const grid = cloneGrid(voxelData.grid);
+        setEditMode(true);
+        setEditTool('paint');
+        setActiveLayer(0);
+        setEditedGrid(grid);
+        setChangeCount(0);
+        setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
+        setViewMode('complete');
+        const result = checkGridStability(grid);
+        setUnstableCells(result.unstable);
+        setMarginalCells(result.marginal);
+      }
+    } else if (tab === 'build') {
+      if (!canEdit) return;
+      if (editMode) {
+        setEditTool('add');
+      } else {
+        if (!voxelData) return;
+        const grid = cloneGrid(voxelData.grid);
+        setEditMode(true);
+        setEditTool('add');
+        setActiveLayer(0);
+        setEditedGrid(grid);
+        setChangeCount(0);
+        setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
+        setViewMode('complete');
+        const result = checkGridStability(grid);
+        setUnstableCells(result.unstable);
+        setMarginalCells(result.marginal);
+      }
+    }
+  }, [editMode, changeCount, cancelEdit, canEdit, voxelData, fullLegend, model.name]);
 
   // ─── Apply: run wildcard + greedy optimizer on edited grid ────────────
 
@@ -369,7 +428,7 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
           <Canvas
             orthographic
             shadows
-            camera={{ position: [14, 14, 14], zoom: 45, near: 0.1, far: 1000 }}
+            camera={{ position: [camDist, camDist, camDist], zoom: camZoom, near: 1, far: camFar }}
           >
             <color attach="background" args={['#F0EFE9']} />
             <BrickScene
@@ -391,28 +450,31 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
           </Canvas>
 
           <div className="absolute top-3 left-1/2 -translate-x-1/2 flex gap-1 bg-white/90 backdrop-blur px-1 py-1 rounded-xl border border-black/10 shadow-toggle">
-            {(['complete', 'step', 'exploded'] as ViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                onClick={() => { if (!editMode) setViewMode(mode); }}
-                disabled={editMode}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-                  viewMode === mode
-                    ? 'bg-brick-red text-white shadow-toggle-active'
-                    : 'text-[#888888] hover:bg-black/5'
-                } ${editMode ? 'opacity-50 cursor-not-allowed' : ''}`}
-              >
-                {mode === 'complete' ? 'Complete' : mode === 'step' ? 'Step' : 'Exploded'}
-              </button>
-            ))}
-            {canEdit && !editMode && (
-              <button
-                onClick={enterEditMode}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg transition-all text-[#888888] hover:bg-black/5 border-l border-black/10 ml-1"
-              >
-                Edit Model
-              </button>
-            )}
+            {([
+              { tab: 'complete' as TopTab, label: 'Complete' },
+              { tab: 'step' as TopTab, label: 'Step' },
+              ...(canEdit ? [
+                { tab: 'paint' as TopTab, label: 'Paint' },
+                { tab: 'build' as TopTab, label: 'Build' },
+              ] : []),
+            ]).map(({ tab, label }) => {
+              const isActive = activeTab === tab;
+              const disabled = editMode && changeCount > 0 && (tab === 'complete' || tab === 'step');
+              return (
+                <button
+                  key={tab}
+                  onClick={() => handleTabChange(tab)}
+                  disabled={disabled}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                    isActive
+                      ? 'bg-brick-red text-white shadow-toggle-active'
+                      : 'text-[#888888] hover:bg-black/5'
+                  } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
 

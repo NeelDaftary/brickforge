@@ -20,15 +20,9 @@ interface EditToolbarProps {
   applying?: boolean;
 }
 
-const TOOL_CONFIG: { tool: EditTool; label: string; icon: string }[] = [
-  { tool: 'paint', label: 'Paint', icon: '🎨' },
-  { tool: 'add', label: 'Add', icon: '➕' },
-  { tool: 'erase', label: 'Erase', icon: '🗑' },
-];
-
 const HINT_TEXT: Record<EditTool, string> = {
-  paint: 'Pick color, click brick (Shift+click to fill region)',
-  add: 'Pick color, click empty cell to place brick',
+  paint: 'Click brick to paint (Shift+click to fill region)',
+  add: 'Click empty cell to place brick',
   erase: 'Click brick to remove (Shift+click to erase region)',
 };
 
@@ -51,25 +45,29 @@ export function EditToolbar({
 
   return (
     <div className="px-4 py-3 border-t-2 border-border bg-surface flex flex-col gap-2.5">
-      {/* Tool selector */}
-      <div className="flex items-center gap-1">
-        {TOOL_CONFIG.map(({ tool, label, icon }) => (
-          <button
-            key={tool}
-            onClick={() => onSetEditTool(tool)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
-              editTool === tool
-                ? 'bg-brick-red text-white shadow-toggle-active'
-                : 'text-[#888888] bg-white border border-black/10 hover:bg-black/5'
-            }`}
-          >
-            <span>{icon}</span>
-            {label}
-          </button>
-        ))}
-      </div>
+      {/* Build mode: add/erase toggle */}
+      {editTool !== 'paint' && (
+        <div className="flex items-center gap-1">
+          {([
+            { tool: 'add' as EditTool, label: 'Add' },
+            { tool: 'erase' as EditTool, label: 'Erase' },
+          ]).map(({ tool, label }) => (
+            <button
+              key={tool}
+              onClick={() => onSetEditTool(tool)}
+              className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                editTool === tool
+                  ? 'bg-brick-red text-white shadow-toggle-active'
+                  : 'text-[#888888] bg-white border border-black/10 hover:bg-black/5'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Layer navigation (only for add/erase — paint works across all layers) */}
+      {/* Layer navigation (build mode only) */}
       {editTool !== 'paint' && (
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Layer</span>
