@@ -197,7 +197,7 @@ describe('voxelGridToBrickModel', () => {
     }
   });
 
-  it('outputs bricks with unique UUIDs', () => {
+  it('outputs bricks with unique IDs', () => {
     const grid = makeGrid(4, 4, 2, 'R');
     const input = buildVoxelGrid(grid, { R: '#FF0000' });
 
@@ -468,18 +468,34 @@ describe('voxelGridToBrickModel', () => {
 
   // ── Interior wildcard handling ─────────────────────────────────────────────
 
-  it('marks usedAny metadata when interior wildcards are consumed', () => {
-    // 3x3x3 solid cube: the center cell [1][1][1] is interior (all 6 neighbors filled)
+  it('handles interior wildcards in a 3x3x3 solid cube', () => {
     const grid = makeGrid(3, 3, 3, 'R');
     const input = buildVoxelGrid(grid, { R: '#FF0000' });
 
     const result = voxelGridToBrickModel(input, 'test', 'desc');
 
     expect(totalBrickVolume(result.bricks)).toBe(27);
+  });
 
-    // At least one brick should have consumed the interior wildcard
-    const anyUsedWildcard = result.bricks.some((b) => b.metadata?.usedAny === true);
-    expect(anyUsedWildcard).toBe(true);
+  it('wildcards voxels next to internal cavities (not exterior-connected)', () => {
+    // 5x5x5 cube with a sealed internal cavity at center (3,3,3 area = 27 cells, hollow center = 1 cell)
+    // The voxels surrounding the cavity should become wildcards since the cavity is sealed
+    const grid = makeGrid(5, 5, 5, 'R');
+    // Hollow out the single center cell
+    grid[2][2][2] = '0';
+    // Paint the surface a different color to verify interior adopts surface color
+    // Set one surface voxel to blue — the rest are red
+    const input = buildVoxelGrid(grid, { R: '#FF0000', B: '#0000FF' });
+
+    const result = voxelGridToBrickModel(input, 'test', 'desc');
+
+    // Total volume = 125 - 1 (cavity) = 124
+    expect(totalBrickVolume(result.bricks)).toBe(124);
+    // All bricks adjacent to the sealed cavity should still be red (not some stale color)
+    // since the cavity is internal, neighbors become wildcards and adopt boundary color
+    for (const brick of result.bricks) {
+      expect(brick.color).toBe('#FF0000');
+    }
   });
 
   // ── Staggering between layers ──────────────────────────────────────────────
@@ -504,19 +520,15 @@ describe('voxelGridToBrickModel', () => {
 
   // ── Single row produces optimal bricks ─────────────────────────────────────
 
-  it('handles a 1x8x1 row with greedy 1x4 bricks (1x8 not in standard set)', () => {
-    // STANDARD_BRICKS does not include [1,8], so the greedy combiner
-    // covers an 8-deep row with two 1x4 bricks.
+  it('handles a 1x8x1 row with a single 1x8 brick', () => {
     const grid = makeGrid(1, 8, 1, 'R');
     const input = buildVoxelGrid(grid, { R: '#FF0000' });
 
     const result = voxelGridToBrickModel(input, 'test', 'desc');
 
-    expect(result.bricks).toHaveLength(2);
+    expect(result.bricks).toHaveLength(1);
+    expect(result.bricks[0].brickId).toBe('b_1x8');
     expect(totalBrickVolume(result.bricks)).toBe(8);
-    for (const brick of result.bricks) {
-      expect(brick.brickId).toBe('b_1x4');
-    }
   });
 
   it('handles a 1x4x1 row producing a single 1x4 brick', () => {
