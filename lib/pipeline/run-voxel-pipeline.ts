@@ -78,6 +78,20 @@ export interface VoxelPipelineResult {
     totalBricks: number;
     shelled: boolean;
     warnings: string[];
+    refinement?: {
+      regionsFound: number;
+      regionsImproved: number;
+      criticalBefore: number;
+      criticalAfter: number;
+      weakBefore: number;
+      weakAfter: number;
+      elapsedMs: number;
+    };
+    fill?: {
+      cellsFilled: number;
+      columnsBuilt: number;
+      budgetUsed: number;
+    };
   };
 }
 
@@ -171,11 +185,14 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
     const model = voxelGridToBrickModel(voxelGrid, name, description, { shell });
 
-    // Step 4: Brick stability check
+    // Step 4: Graduated stability check
     const stability = checkBrickStability(model.bricks);
     if (stability.warnings.length > 0) {
       warnings.push(...stability.warnings);
     }
+
+    const refinementStats = (model as { refinementStats?: { regionsFound: number; regionsImproved: number; criticalBefore: number; criticalAfter: number; weakBefore: number; weakAfter: number; elapsedMs: number } }).refinementStats;
+    const fillStats = (model as { fillStats?: { cellsFilled: number; columnsBuilt: number; budgetUsed: number } }).fillStats;
 
     return {
       model,
@@ -189,6 +206,24 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         totalBricks: model.totalBricks,
         shelled: shell,
         warnings,
+        ...(refinementStats ? {
+          refinement: {
+            regionsFound: refinementStats.regionsFound,
+            regionsImproved: refinementStats.regionsImproved,
+            criticalBefore: refinementStats.criticalBefore,
+            criticalAfter: refinementStats.criticalAfter,
+            weakBefore: refinementStats.weakBefore,
+            weakAfter: refinementStats.weakAfter,
+            elapsedMs: refinementStats.elapsedMs,
+          },
+        } : {}),
+        ...(fillStats ? {
+          fill: {
+            cellsFilled: fillStats.cellsFilled,
+            columnsBuilt: fillStats.columnsBuilt,
+            budgetUsed: fillStats.budgetUsed,
+          },
+        } : {}),
       },
     };
   } finally {

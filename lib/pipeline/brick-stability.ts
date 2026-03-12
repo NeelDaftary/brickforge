@@ -1,33 +1,52 @@
 /**
- * Brick Stability Check — advisory warnings for unsupported bricks.
+ * Brick Stability Check — graduated tier warnings for unsupported bricks.
  *
  * Checks each non-ground brick for stud overlap with the layer below.
  * Produces warnings (no auto-fix) that are appended to pipeline diagnostics.
+ *
+ * Tiers:
+ *   Critical  — <25% support, not locked from above (will physically fall)
+ *   Weak      — 25-49% support (holds via clutch power but fragile)
+ *   Marginal  — <50% support but locked from above (held but structurally poor)
+ *   Stable    — ≥50% support (structurally sound)
  */
 
 import type { BrickInstance } from '@/lib/engine/types';
 
+interface BrickSupportInfo {
+  supportRatio: number;
+  tier: 'critical' | 'weak' | 'marginal' | 'stable';
+  supportedStuds: number;
+  totalStuds: number;
+}
+
 export interface StabilityResult {
-  unstableCount: number;
-  marginalCount: number;
+  criticalCount: number;    // <25% support, not locked
+  weakCount: number;        // 25-49% support
+  marginalCount: number;    // <50% but locked from above
+  stableCount: number;      // ≥50% support
   warnings: string[];
+  brickSupport: Map<string, BrickSupportInfo>;
 }
 
 /**
- * Check brick stability by computing support ratios.
+ * Check brick stability by computing support ratios with graduated tiers.
  *
  * For each non-ground brick:
  *   support_ratio = studs overlapping a brick below / total studs
- *   < 0.5 and not locked from above → unstable
- *   < 0.5 but locked from above → marginal
+ *   <25% and not locked → critical
+ *   25-49% and not locked → weak
+ *   <50% but locked from above → marginal
+ *   ≥50% → stable
  */
 export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
+  const brickSupport = new Map<string, BrickSupportInfo>();
+
   if (bricks.length === 0) {
-    return { unstableCount: 0, marginalCount: 0, warnings: [] };
+    return { criticalCount: 0, weakCount: 0, marginalCount: 0, stableCount: 0, warnings: [], brickSupport };
   }
 
   // Build spatial lookup: (gx, gy, gz) → brick
-  // Use metadata grid coords if available, otherwise derive from position
   const occupied = new Map<string, BrickInstance>();
 
   for (const brick of bricks) {
@@ -37,7 +56,6 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     const gw = brick.metadata?.gw ?? (brick.studWidth ?? 1);
     const gd = brick.metadata?.gd ?? (brick.studDepth ?? 1);
 
-    // Mark all studs this brick occupies
     for (let dx = 0; dx < gw; dx++) {
       for (let dz = 0; dz < gd; dz++) {
         const key = `${gx + dx},${gy},${gz + dz}`;
@@ -46,8 +64,10 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     }
   }
 
-  let unstableCount = 0;
+  let criticalCount = 0;
+  let weakCount = 0;
   let marginalCount = 0;
+  let stableCount = 0;
 
   for (const brick of bricks) {
     const gx = brick.metadata?.gx ?? brick.position[0];
@@ -57,7 +77,17 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     const gd = brick.metadata?.gd ?? (brick.studDepth ?? 1);
 
     // Ground layer bricks are always stable
-    if (gy === 0) continue;
+    if (gy === 0) {
+      const info: BrickSupportInfo = {
+        supportRatio: 1,
+        tier: 'stable',
+        supportedStuds: gw * gd,
+        totalStuds: gw * gd,
+      };
+      brickSupport.set(brick.id, info);
+      stableCount++;
+      continue;
+    }
 
     const totalStuds = gw * gd;
     let supportedStuds = 0;
@@ -65,12 +95,10 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
 
     for (let dx = 0; dx < gw; dx++) {
       for (let dz = 0; dz < gd; dz++) {
-        // Check below
         const belowKey = `${gx + dx},${gy - 1},${gz + dz}`;
         if (occupied.has(belowKey)) {
           supportedStuds++;
         }
-        // Check above
         const aboveKey = `${gx + dx},${gy + 1},${gz + dz}`;
         if (occupied.has(aboveKey)) {
           lockedFromAbove = true;
@@ -79,20 +107,36 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     }
 
     const supportRatio = supportedStuds / totalStuds;
-    if (supportRatio < 0.5) {
-      if (lockedFromAbove) {
-        marginalCount++;
-      } else {
-        unstableCount++;
-      }
+    let tier: BrickSupportInfo['tier'];
+
+    if (supportRatio >= 0.5) {
+      tier = 'stable';
+      stableCount++;
+    } else if (lockedFromAbove) {
+      tier = 'marginal';
+      marginalCount++;
+    } else if (supportRatio >= 0.25) {
+      tier = 'weak';
+      weakCount++;
+    } else {
+      tier = 'critical';
+      criticalCount++;
     }
+
+    brickSupport.set(brick.id, { supportRatio, tier, supportedStuds, totalStuds });
   }
 
   const warnings: string[] = [];
-  if (unstableCount > 0) {
+  if (criticalCount > 0) {
     warnings.push(
-      `Stability: ${unstableCount} brick${unstableCount === 1 ? '' : 's'} may be unstable ` +
-      `(less than 50% stud support from below). Consider adding support bricks.`,
+      `Stability: ${criticalCount} brick${criticalCount === 1 ? '' : 's'} are critical ` +
+      `(less than 25% stud support, will likely fall). Add support bricks immediately.`,
+    );
+  }
+  if (weakCount > 0) {
+    warnings.push(
+      `Stability: ${weakCount} brick${weakCount === 1 ? '' : 's'} are weak ` +
+      `(25-49% support, held by clutch power but fragile).`,
     );
   }
   if (marginalCount > 0) {
@@ -102,14 +146,16 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     );
   }
 
-  return { unstableCount, marginalCount, warnings };
+  return { criticalCount, weakCount, marginalCount, stableCount, warnings, brickSupport };
 }
 
 // ─── Grid-based stability check (for voxel edit mode) ────────────────────────
 
 export interface GridStabilityResult {
-  unstable: Set<string>;  // "x,y,z" keys — no support below
-  marginal: Set<string>;  // "x,y,z" keys — weak support but locked above
+  critical: Set<string>;   // "x,y,z" keys — <25% support, not locked
+  weak: Set<string>;       // "x,y,z" keys — 25-49% support
+  marginal: Set<string>;   // "x,y,z" keys — <50% but locked above
+  stable: Set<string>;     // "x,y,z" keys — ≥50% support
 }
 
 /**
@@ -120,15 +166,17 @@ export interface GridStabilityResult {
  *   - Count adjacent support: x±1,y,z-1 and x,y±1,z-1 filled → 0.5 points each
  *   - If total support < 1.0 (equivalent to <50% of direct+neighbor check) → weak
  *   - Weak + locked from above (grid[x][y][z+1] filled) → marginal
- *   - Weak + not locked → unstable
+ *   - Weak + not locked → check threshold for critical vs weak
  */
 export function checkGridStability(grid: string[][][]): GridStabilityResult {
   const sizeX = grid.length;
   const sizeY = sizeX > 0 ? grid[0].length : 0;
   const sizeZ = sizeY > 0 ? grid[0][0].length : 0;
 
-  const unstable = new Set<string>();
+  const critical = new Set<string>();
+  const weak = new Set<string>();
   const marginal = new Set<string>();
+  const stable = new Set<string>();
 
   for (let x = 0; x < sizeX; x++) {
     for (let y = 0; y < sizeY; y++) {
@@ -136,7 +184,10 @@ export function checkGridStability(grid: string[][][]): GridStabilityResult {
         const sym = grid[x][y][z];
         if (sym === '0' || sym === '*') continue;
         // Ground layer is always stable
-        if (z === 0) continue;
+        if (z === 0) {
+          stable.add(`${x},${y},${z}`);
+          continue;
+        }
 
         const isFilled = (cx: number, cy: number, cz: number) =>
           cx >= 0 && cx < sizeX && cy >= 0 && cy < sizeY && cz >= 0 && cz < sizeZ &&
@@ -156,18 +207,23 @@ export function checkGridStability(grid: string[][][]): GridStabilityResult {
         // Max possible = 1 + 4*0.5 = 3. Threshold: < 50% of max(2) = < 1.0
         const support = directBelow + adjacentBelow * 0.5;
 
-        if (support < 1.0) {
-          const key = `${x},${y},${z}`;
+        const key = `${x},${y},${z}`;
+
+        if (support >= 1.0) {
+          stable.add(key);
+        } else {
           // Check if locked from above
           if (isFilled(x, y, z + 1)) {
             marginal.add(key);
+          } else if (support >= 0.5) {
+            weak.add(key);
           } else {
-            unstable.add(key);
+            critical.add(key);
           }
         }
       }
     }
   }
 
-  return { unstable, marginal };
+  return { critical, weak, marginal, stable };
 }

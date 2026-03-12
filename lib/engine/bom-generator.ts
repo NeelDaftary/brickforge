@@ -39,7 +39,7 @@ export function generateBOM(model: BrickModelData): BOMItem[] {
       brickId,
       bricklinkPartId: def.bricklinkId,
       color: colorHex,
-      colorName: getColorName(colorHex) ?? 'Unknown',
+      colorName: getColorName(colorHex) ?? colorHex,
       bricklinkColorId: getBrickLinkColorId(colorHex),
       displayName: def.name,
       count,

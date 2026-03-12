@@ -206,7 +206,7 @@ describe('generateBOM', () => {
 
     expect(bom).toHaveLength(1);
     expect(bom[0].bricklinkColorId).toBeUndefined();
-    expect(bom[0].colorName).toBe('Unknown');
+    expect(bom[0].colorName).toBe('#123456');
   });
 });
 
@@ -237,7 +237,6 @@ describe('getBOMForStep', () => {
   });
 
   it('returns an empty array for a step with no bricks', () => {
-    const step99 = getBOMForStep(stepModel, 99);
-    expect(step99).toEqual([]);
+    expect(getBOMForStep(stepModel, 99)).toEqual([]);
   });
 });

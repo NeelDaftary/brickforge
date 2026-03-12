@@ -16,12 +16,14 @@
 
 import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
 import { BRICK_CATALOG } from '@/lib/engine/brick_catalog';
+import { refineStability, type RefinementStats } from '@/lib/pipeline/stability-refiner';
+import { fillGaps, type FillStats } from '@/lib/pipeline/stability-fill';
 
 // ─── Brick Sizes ──────────────────────────────────────────────────────────────
 // Derived from catalog (brick type only). Sorted by area descending,
 // ties broken by squareness (lower aspect ratio preferred).
 
-const BRICK_SIZES: [number, number][] = (() => {
+export const BRICK_SIZES: [number, number][] = (() => {
   const seen = new Set<string>();
   const sizes: [number, number][] = [];
   for (const def of BRICK_CATALOG) {
@@ -45,12 +47,12 @@ const VALID_BRICK_DIMS = new Set(
   BRICK_SIZES.map(([w, d]) => `${w},${d}`),
 );
 
-function isValidBrickSize(w: number, d: number): boolean {
+export function isValidBrickSize(w: number, d: number): boolean {
   const nw = Math.min(w, d), nd = Math.max(w, d);
   return VALID_BRICK_DIMS.has(`${nw},${nd}`);
 }
 
-function brickId(w: number, d: number): string {
+export function brickId(w: number, d: number): string {
   return `b_${Math.min(w, d)}x${Math.max(w, d)}`;
 }
 
@@ -71,7 +73,7 @@ interface Dims {
   sz: number;
 }
 
-interface PlacedBrick {
+export interface PlacedBrick {
   x: number;
   y: number;
   z: number;
@@ -437,9 +439,62 @@ function toBrickInstances(placed: PlacedBrick[], d: Dims): BrickInstance[] {
     studDepth: b.d,
     color: b.color,
     step: b.z + 1,
-    metadata: { gx: b.x, gy: b.y, gz: b.z, gw: b.w, gd: b.d },
+    metadata: { gx: b.x, gy: b.z, gz: b.y, gw: b.w, gd: b.d },
   }));
 }
+
+// ─── Internal pipeline stages ────────────────────────────────────────────────
+
+function buildLayers(
+  grid: string[][][],
+  colorLegend: Record<string, string>,
+  gridDims: Dims,
+  wildcardColors: Map<string, string>,
+): PlacedBrick[][] {
+  const layers: PlacedBrick[][] = [];
+  for (let z = 0; z < gridDims.sz; z++) {
+    layers.push(combineLayer(grid, z, colorLegend, gridDims, wildcardColors));
+  }
+
+  // Phase 2: Structural staggering (two passes, two-layer lookahead)
+  let splits = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    for (let z = 1; z < gridDims.sz; z++) {
+      if (layers[z].length === 0) continue;
+      const seams = extractSeams(layers[z - 1]);
+      if (z >= 2 && layers[z - 2].length > 0) {
+        for (const s of extractSeams(layers[z - 2])) seams.add(s);
+      }
+      const before = layers[z].length;
+      layers[z] = staggerLayer(layers[z], seams);
+      splits += layers[z].length - before;
+    }
+  }
+  if (splits > 0) console.log(`[stagger] Split ${splits} bricks to break aligned seams`);
+
+  return layers;
+}
+
+function layersToModel(
+  layers: PlacedBrick[][],
+  gridDims: Dims,
+  name: string,
+  description: string,
+  voxelData: VoxelGrid,
+): BrickModelData {
+  const allBricks = layers.flat();
+  brickCounter = 0;
+  const bricks = toBrickInstances(allBricks, gridDims);
+
+  return {
+    name,
+    description,
+    totalBricks: bricks.length,
+    bricks,
+    voxelData: { grid: voxelData.grid, colorLegend: voxelData.colorLegend, gridSize: voxelData.gridSize },
+  };
+}
+
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
@@ -447,8 +502,8 @@ export function voxelGridToBrickModel(
   voxelData: VoxelGrid,
   name: string,
   description: string,
-  options: { shell?: boolean } = {},
-): BrickModelData {
+  options: { shell?: boolean; refine?: boolean; fill?: boolean } = {},
+): BrickModelData & { refinementStats?: RefinementStats; fillStats?: FillStats } {
   const { grid, colorLegend } = voxelData;
   const d = dims(grid);
 
@@ -466,41 +521,39 @@ export function voxelGridToBrickModel(
       for (let z = 0; z < d.sz; z++)
         if (processed[x][y][z] !== '0') filledCount++;
 
-  // Phase 1: Greedy brick combiner
-  const layers: PlacedBrick[][] = [];
-  for (let z = 0; z < d.sz; z++) {
-    layers.push(combineLayer(processed, z, colorLegend, d, wildcardColors));
-  }
+  // Phase 1+2: Greedy brick combiner + stagger
+  let layers = buildLayers(processed, colorLegend, d, wildcardColors);
 
-  // Phase 2: Structural staggering (two passes, two-layer lookahead)
-  let splits = 0;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let z = 1; z < d.sz; z++) {
-      if (layers[z].length === 0) continue;
-      // Merge seams from z-1 and z-2 for wider lookahead
-      const seams = extractSeams(layers[z - 1]);
-      if (z >= 2 && layers[z - 2].length > 0) {
-        for (const s of extractSeams(layers[z - 2])) seams.add(s);
-      }
-      const before = layers[z].length;
-      layers[z] = staggerLayer(layers[z], seams);
-      splits += layers[z].length - before;
+  // Phase 2.5: Stability refinement (split-remerge)
+  let refinementStats: RefinementStats | undefined;
+  if (options.refine !== false) {
+    const { layers: refined, stats } = refineStability(layers);
+    layers = refined;
+    refinementStats = stats;
+    if (stats.regionsFound > 0) {
+      console.log(
+        `[refiner] ${stats.regionsFound} regions, ${stats.regionsImproved} improved, ` +
+        `critical ${stats.criticalBefore}→${stats.criticalAfter}, ` +
+        `weak ${stats.weakBefore}→${stats.weakAfter} (${stats.elapsedMs}ms)`,
+      );
     }
   }
-  if (splits > 0) console.log(`[stagger] Split ${splits} bricks to break aligned seams`);
+
+  // Phase 2.75: Gap-fill (support bricks)
+  let fillStats: FillStats | undefined;
+  if (options.fill !== false) {
+    const { layers: filled, stats } = fillGaps(layers);
+    layers = filled;
+    fillStats = stats;
+    if (stats.cellsFilled > 0) {
+      console.log(`[fill] ${stats.cellsFilled} cells filled, ${stats.columnsBuilt} columns`);
+    }
+  }
 
   const allBricks = layers.flat();
   console.log(`[pipeline] ${filledCount} voxels → ${allBricks.length} bricks (${(filledCount / Math.max(allBricks.length, 1)).toFixed(1)}x compression)`);
 
   // Phase 3: Convert to viewer format
-  brickCounter = 0;
-  const bricks = toBrickInstances(allBricks, d);
-
-  return {
-    name,
-    description,
-    totalBricks: bricks.length,
-    bricks,
-    voxelData: { grid: voxelData.grid, colorLegend: voxelData.colorLegend, gridSize: voxelData.gridSize },
-  };
+  const model = layersToModel(layers, d, name, description, voxelData);
+  return { ...model, refinementStats, fillStats };
 }

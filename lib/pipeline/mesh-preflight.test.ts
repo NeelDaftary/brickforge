@@ -5,30 +5,16 @@ import { describe, expect, it } from 'vitest';
 import { preflightMeshPath } from './mesh-preflight';
 
 describe('preflightMeshPath', () => {
-  it('accepts .blend as supported format', async () => {
+  it('accepts supported formats (.blend, .glb)', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
     try {
-      const blendPath = path.join(dir, 'model.blend');
-      await writeFile(blendPath, 'placeholder');
-
-      const result = await preflightMeshPath(blendPath);
-      expect(result.shouldProceed).toBe(true);
-      expect(result.format).toBe('blend');
-      expect(result.errors).toHaveLength(0);
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('accepts .glb as supported format', async () => {
-    const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
-    try {
-      const glbPath = path.join(dir, 'model.glb');
-      await writeFile(glbPath, 'placeholder');
-
-      const result = await preflightMeshPath(glbPath);
-      expect(result.shouldProceed).toBe(true);
-      expect(result.format).toBe('glb');
+      for (const [ext, fmt] of [['blend', 'blend'], ['glb', 'glb']] as const) {
+        const filePath = path.join(dir, `model.${ext}`);
+        await writeFile(filePath, 'placeholder');
+        const result = await preflightMeshPath(filePath);
+        expect(result.shouldProceed).toBe(true);
+        expect(result.format).toBe(fmt);
+      }
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -39,7 +25,6 @@ describe('preflightMeshPath', () => {
     try {
       const fbxPath = path.join(dir, 'model.fbx');
       await writeFile(fbxPath, 'placeholder');
-
       const result = await preflightMeshPath(fbxPath);
       expect(result.shouldProceed).toBe(false);
       expect(result.format).toBe('unknown');

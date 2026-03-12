@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { LegoCanvas } from '@/components/viewer/LegoCanvas';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MeshUpload } from '@/components/MeshUpload';
@@ -157,7 +157,7 @@ export default function HomePage() {
     }
   }
 
-  function handleDownload() {
+  function handleDownloadJson() {
     if (!result) return;
     const { diagnostics: _, ...cleanModel } = result;
     const blob = new Blob([JSON.stringify(cleanModel, null, 2)], { type: 'application/json' });
@@ -167,6 +167,57 @@ export default function HomePage() {
     a.download = `${result.name.replace(/[^a-zA-Z0-9-_ ]/g, '').trim() || 'build'}.brickforge.json`;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
+  const [exportingSTL, setExportingSTL] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!showExportMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setShowExportMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showExportMenu]);
+
+  async function handleExportSTL() {
+    if (!result) return;
+    const name = window.prompt('Name for your export:', result.name || 'build');
+    if (!name) return;
+
+    setShowExportMenu(false);
+    setExportingSTL(true);
+
+    try {
+      const { diagnostics: _, ...cleanModel } = result;
+      const res = await fetch('/api/export-stl', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: cleanModel, exportName: name }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Export failed');
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_')}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'STL export failed';
+      setError(msg);
+    } finally {
+      setExportingSTL(false);
+    }
   }
 
   function handleLoadBuild(id: string) {
@@ -410,13 +461,35 @@ export default function HomePage() {
               >
                 {savedBuildId ? 'Update Saved Build' : 'Save Build'}
               </button>
-              <button
-                onClick={handleDownload}
-                className="py-3 px-5 text-sm font-bold text-[#1A1A1A] bg-surface border-2 border-[#DDDDDD] rounded-button cursor-pointer transition-all duration-200 tracking-[0.2px] hover:border-brick-red"
-                title="Download as file"
-              >
-                Export
-              </button>
+              <div className="relative" ref={exportMenuRef}>
+                <button
+                  onClick={() => setShowExportMenu(!showExportMenu)}
+                  disabled={exportingSTL}
+                  className="py-3 px-5 text-sm font-bold text-[#1A1A1A] bg-surface border-2 border-[#DDDDDD] rounded-button cursor-pointer transition-all duration-200 tracking-[0.2px] hover:border-brick-red disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {exportingSTL ? 'Exporting...' : 'Export'}
+                  <svg width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                </button>
+                {showExportMenu && (
+                  <div className="absolute top-full mt-1 right-0 bg-surface border-2 border-[#DDDDDD] rounded-lg shadow-lg z-50 min-w-[200px] overflow-hidden">
+                    <button
+                      onClick={() => { handleExportSTL(); }}
+                      className="w-full py-2.5 px-4 text-sm text-left text-[#1A1A1A] hover:bg-[#F5F5F0] transition-colors flex items-center gap-2"
+                    >
+                      <span className="font-bold">STL Print Files</span>
+                      <span className="text-[11px] text-[#999]">.zip</span>
+                    </button>
+                    <div className="h-px bg-[#EEEEEE]" />
+                    <button
+                      onClick={() => { handleDownloadJson(); setShowExportMenu(false); }}
+                      className="w-full py-2.5 px-4 text-sm text-left text-[#1A1A1A] hover:bg-[#F5F5F0] transition-colors flex items-center gap-2"
+                    >
+                      <span className="font-bold">Build Data</span>
+                      <span className="text-[11px] text-[#999]">.brickforge.json</span>
+                    </button>
+                  </div>
+                )}
+              </div>
               <button
                 onClick={handleReset}
                 className="flex-1 py-3 px-7 text-sm font-bold text-[#1A1A1A] bg-surface border-2 border-[#DDDDDD] rounded-button cursor-pointer transition-all duration-200 tracking-[0.2px] hover:border-brick-red"

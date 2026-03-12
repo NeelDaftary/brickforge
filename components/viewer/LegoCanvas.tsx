@@ -161,7 +161,7 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
     if (stabilityTimer.current) clearTimeout(stabilityTimer.current);
     stabilityTimer.current = setTimeout(() => {
       const result = checkGridStability(grid);
-      setUnstableCells(result.unstable);
+      setUnstableCells(new Set([...result.critical, ...result.weak]));
       setMarginalCells(result.marginal);
     }, 200);
   }, []);
@@ -219,7 +219,7 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
         setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
         setViewMode('complete');
         const result = checkGridStability(grid);
-        setUnstableCells(result.unstable);
+        setUnstableCells(new Set([...result.critical, ...result.weak]));
         setMarginalCells(result.marginal);
       }
     } else if (tab === 'build') {
@@ -237,7 +237,7 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
         setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
         setViewMode('complete');
         const result = checkGridStability(grid);
-        setUnstableCells(result.unstable);
+        setUnstableCells(new Set([...result.critical, ...result.weak]));
         setMarginalCells(result.marginal);
       }
     }
