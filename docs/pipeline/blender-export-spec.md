@@ -217,6 +217,124 @@ open meshes. Check for non-manifold edges and fill holes.
 **Mesh too small in grid**: Model scale too small relative to grid size.
 Ensure the largest dimension is at least 1 Blender unit.
 
+## Preparing Textured Models (.blend Path)
+
+When uploading a `.blend` file (instead of a flat-color GLB), the pipeline
+uses `scripts/blender/blender_voxel_to_grid.py` to voxelize in Blender and
+sample colors directly from the mesh's material/texture. This path supports
+full PBR-textured models but requires the shader graph to be set up correctly.
+
+### How the .blend Color Sampler Works
+
+The sampler traces the **Principled BSDF → Base Color** input:
+
+1. Finds the `BSDF_PRINCIPLED` node in each material
+2. Follows the `Base Color` input link back to its source node
+3. If the source is a `TEX_IMAGE` node: samples the texture via barycentric UV interpolation
+4. If no linked texture: reads the flat `Base Color` default value
+5. Fallback: returns grey ("G")
+
+**Any shader setup without Principled BSDF will produce all-grey output.**
+
+### Sketchfab Models (Unlit Materials)
+
+Sketchfab GLTF/GLB exports typically use an **unlit material** graph:
+
+```
+Image Texture → Emission → Mix Shader (with Transparent BSDF via Light Path) → Material Output
+```
+
+There is **no Principled BSDF** in this setup. The pipeline will find no
+principled node and return grey for every voxel.
+
+**Fix — rebuild materials before saving the .blend:**
+
+1. Open the **Shader Editor** in Blender
+2. Identify the Image Texture node carrying the diffuse color (usually named
+   `*_baseColor*`, `*_diffuse*`, or `*_color*`)
+3. Delete all intermediate nodes (Emission, Light Path, Transparent BSDF, Mix Shader)
+4. Add a new **Principled BSDF** node
+5. Wire: `Image Texture.Color → Principled BSDF.Base Color`
+6. Wire: `Principled BSDF.BSDF → Material Output.Surface`
+7. Repeat for every material slot across all mesh objects
+
+**Automation script:**
+
+```python
+import bpy
+
+for obj in bpy.context.scene.objects:
+    if obj.type != 'MESH' or not obj.data.materials:
+        continue
+    for mat in obj.data.materials:
+        if not mat or not mat.node_tree:
+            continue
+        tree = mat.node_tree
+        # Find the diffuse Image Texture (keep it)
+        img_tex = None
+        for node in tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.image:
+                name = node.image.name.lower()
+                if 'basecolor' in name or 'diffuse' in name or 'color' in name:
+                    img_tex = node
+                    break
+                elif img_tex is None:
+                    img_tex = node
+        if not img_tex:
+            continue
+        # Find Material Output (keep it)
+        mat_output = None
+        for node in tree.nodes:
+            if node.type == 'OUTPUT_MATERIAL':
+                mat_output = node
+                break
+        # Remove all other nodes, clear links
+        for n in [n for n in tree.nodes if n != img_tex and n != mat_output]:
+            tree.nodes.remove(n)
+        tree.links.clear()
+        # Add Principled BSDF and wire up
+        principled = tree.nodes.new('ShaderNodeBsdfPrincipled')
+        principled.location = (300, 300)
+        img_tex.location = (0, 300)
+        mat_output.location = (600, 300)
+        tree.links.new(img_tex.outputs['Color'], principled.inputs['Base Color'])
+        tree.links.new(principled.outputs['BSDF'], mat_output.inputs['Surface'])
+```
+
+### Multi-Texture PBR Models (Normal + Metallic + Diffuse)
+
+Models with full PBR texture sets have multiple `TEX_IMAGE` nodes. The
+pipeline traces the **Base Color link chain** to find the correct texture.
+It does NOT grab the first or last Image Texture node it finds.
+
+Common failure: if the pipeline were to pick the wrong texture:
+- **Normal map** pixels are encoded as `(0.5, 0.5, 1.0)` → purple/blue output
+- **Metallic-roughness map** pixels are greyscale → grey output
+
+Ensure the **diffuse/albedo texture** is wired directly to Principled BSDF's
+Base Color input (or at most one node deep, e.g., through a Mix RGB or
+Color Ramp). The pipeline walks up to one level of intermediate nodes.
+
+### Texture Color Space
+
+- Diffuse/albedo textures: set to **sRGB** in Blender's Image Editor
+- Normal maps: set to **Non-Color** (correct default)
+- Metallic/roughness maps: set to **Non-Color** (correct default)
+
+If a diffuse texture is incorrectly tagged as `Non-Color` (common with GLB
+imports), the pipeline applies sRGB gamma correction as a safety net. But
+setting it to sRGB in Blender is the correct fix.
+
+### Pre-Save Checklist for .blend Files
+
+1. All materials use **Principled BSDF** (not Emission, Mix Shader, etc.)
+2. Diffuse texture wired **directly to Base Color** input
+3. Diffuse texture color space set to **sRGB**
+4. **Apply all transforms** (`Ctrl+A` → All Transforms)
+5. **Apply modifiers** (except GN voxelizer if present)
+6. Mesh is **manifold** (preferred — non-manifold causes color noise at
+   boundaries but does not break the pipeline)
+
 ## What NOT to Do
 
 - Do NOT bake vertex colors via `BYTE_COLOR` or `FLOAT_COLOR` attributes.

@@ -420,14 +420,12 @@ function staggerLayer(bricks: PlacedBrick[], prevSeams: Set<string>): PlacedBric
 
 // ─── Phase 3: Convert to Viewer Format ────────────────────────────────────────
 
-let brickCounter = 0;
-
 function toBrickInstances(placed: PlacedBrick[], d: Dims): BrickInstance[] {
   const cx = d.sx / 2;
   const cy = d.sy / 2;
 
-  return placed.map((b) => ({
-    id: `brick-${brickCounter++}`,
+  return placed.map((b, i) => ({
+    id: `brick-${i}`,
     brickId: brickId(b.w, b.d),
     position: [
       b.x + (b.w / 2 - 0.5) - cx,
@@ -483,7 +481,6 @@ function layersToModel(
   voxelData: VoxelGrid,
 ): BrickModelData {
   const allBricks = layers.flat();
-  brickCounter = 0;
   const bricks = toBrickInstances(allBricks, gridDims);
 
   return {
@@ -494,7 +491,6 @@ function layersToModel(
     voxelData: { grid: voxelData.grid, colorLegend: voxelData.colorLegend, gridSize: voxelData.gridSize },
   };
 }
-
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 

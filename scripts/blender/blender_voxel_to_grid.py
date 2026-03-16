@@ -45,6 +45,7 @@ from color_quantization import (
     LEGO_COLORS,
     SYMBOL_TO_HEX,
     linear_rgb_to_nearest_lego_hex,
+    srgb_tuple_to_nearest_lego_hex,
 )
 
 
@@ -191,14 +192,33 @@ def sample_color_at_point(
     if mat is None or not mat.use_nodes:
         return "G"
 
-    # Try to find Image Texture node connected to Principled BSDF
+    # Find the Principled BSDF, then trace its Base Color input back to
+    # the connected Image Texture node (if any).  The old approach grabbed
+    # whichever TEX_IMAGE came last in iteration order, which could be the
+    # normal map or metallic-roughness map — producing purple/grey output.
     principled = None
-    img_tex = None
     for node in mat.node_tree.nodes:
         if node.type == 'BSDF_PRINCIPLED':
             principled = node
-        elif node.type == 'TEX_IMAGE' and node.image:
-            img_tex = node
+            break
+
+    img_tex = None
+    if principled:
+        base_color_input = principled.inputs.get("Base Color")
+        if base_color_input and base_color_input.is_linked:
+            # Walk the link chain (handles intermediate nodes like Mix, etc.)
+            source = base_color_input.links[0].from_node
+            # Direct connection: Image Texture → Base Color
+            if source.type == 'TEX_IMAGE' and source.image:
+                img_tex = source
+            else:
+                # One level deeper: e.g. Mix RGB / Color Ramp → Image Texture
+                for inp in source.inputs:
+                    if inp.is_linked:
+                        upstream = inp.links[0].from_node
+                        if upstream.type == 'TEX_IMAGE' and upstream.image:
+                            img_tex = upstream
+                            break
 
     # Path 1: Texture sampling via barycentric UV interpolation
     if img_tex and img_tex.image and mesh.uv_layers.active:
@@ -223,10 +243,16 @@ def sample_color_at_point(
             idx = (py * image.size[0] + px) * stride
 
             if idx + 2 < len(pixels):
-                # Blender image pixels are already linear, so quantize directly
-                # instead of round-tripping through sRGB before OKLCH matching.
-                r_lin, g_lin, b_lin = pixels[idx], pixels[idx + 1], pixels[idx + 2]
-                return linear_rgb_to_nearest_lego_hex((r_lin, g_lin, b_lin))
+                r, g, b = pixels[idx], pixels[idx + 1], pixels[idx + 2]
+                # Blender linearizes pixels for images whose color space is
+                # sRGB/Filmic, but leaves them as-is for Non-Color/Raw/Linear.
+                # GLB imports and manually-tagged textures may use Non-Color,
+                # meaning the raw sRGB file values reach us without conversion.
+                cs = image.colorspace_settings.name
+                if cs in ('Non-Color', 'Raw', 'Linear'):
+                    return srgb_tuple_to_nearest_lego_hex((r, g, b))
+                # sRGB / Filmic / other managed spaces — Blender already linearized
+                return linear_rgb_to_nearest_lego_hex((r, g, b))
 
     # Path 2: Flat Base Color from Principled BSDF
     if principled:
@@ -398,6 +424,96 @@ def _realize_gn_modifier(obj: bpy.types.Object) -> None:
 
 # ─── Create color-reference copy ─────────────────────────────────────────────
 
+def _repair_materials(obj: bpy.types.Object) -> None:
+    """Auto-detect and fix material setups that the color sampler can't read.
+
+    Handles:
+    - Sketchfab unlit materials (Emission → Mix Shader, no Principled BSDF)
+    - Multi-texture PBR where the Base Color input isn't linked to the diffuse texture
+
+    After repair, every material will have:
+      Image Texture (diffuse) → Principled BSDF.Base Color → Material Output
+    or just a flat-color Principled BSDF if no diffuse texture is found.
+    """
+    if not obj.data.materials:
+        return
+
+    for mat in obj.data.materials:
+        if not mat or not mat.node_tree:
+            continue
+
+        tree = mat.node_tree
+
+        # Check if a Principled BSDF already exists with Base Color linked
+        has_valid_setup = False
+        for node in tree.nodes:
+            if node.type == 'BSDF_PRINCIPLED':
+                bc = node.inputs.get("Base Color")
+                if bc and bc.is_linked:
+                    src = bc.links[0].from_node
+                    if src.type == 'TEX_IMAGE' and src.image:
+                        has_valid_setup = True
+                        break
+                    # One level deeper (Mix, Color Ramp, etc.)
+                    for inp in src.inputs:
+                        if inp.is_linked and inp.links[0].from_node.type == 'TEX_IMAGE':
+                            has_valid_setup = True
+                            break
+                elif bc and not bc.is_linked:
+                    # Flat color on Principled BSDF — also valid
+                    has_valid_setup = True
+                break
+
+        if has_valid_setup:
+            continue
+
+        # ── Material needs repair ──
+        # Find the best candidate diffuse Image Texture
+        img_tex = None
+        for node in tree.nodes:
+            if node.type == 'TEX_IMAGE' and node.image:
+                name_lower = node.image.name.lower()
+                if any(k in name_lower for k in ('basecolor', 'diffuse', 'color', 'albedo')):
+                    img_tex = node
+                    break
+                elif img_tex is None:
+                    img_tex = node  # fallback to first texture found
+
+        # Find Material Output
+        mat_output = None
+        for node in tree.nodes:
+            if node.type == 'OUTPUT_MATERIAL':
+                mat_output = node
+                break
+
+        if not mat_output:
+            continue
+
+        # Remove all nodes except the diffuse texture and Material Output
+        keep = {mat_output}
+        if img_tex:
+            keep.add(img_tex)
+        for node in [n for n in tree.nodes if n not in keep]:
+            tree.nodes.remove(node)
+        tree.links.clear()
+
+        # Add Principled BSDF
+        principled = tree.nodes.new('ShaderNodeBsdfPrincipled')
+        principled.location = (300, 300)
+        mat_output.location = (600, 300)
+
+        if img_tex:
+            img_tex.location = (0, 300)
+            tree.links.new(img_tex.outputs['Color'], principled.inputs['Base Color'])
+            print(f"[LOG] Repaired material '{mat.name}': "
+                  f"wired '{img_tex.image.name}' → Principled BSDF Base Color")
+        else:
+            print(f"[LOG] Repaired material '{mat.name}': "
+                  f"added Principled BSDF (flat color, no diffuse texture found)")
+
+        tree.links.new(principled.outputs['BSDF'], mat_output.inputs['Surface'])
+
+
 def _make_color_ref(obj: bpy.types.Object) -> bpy.types.Object:
     """Duplicate the object, strip GN modifiers, and return a clean mesh for color sampling."""
     bpy.ops.object.select_all(action='DESELECT')
@@ -417,6 +533,10 @@ def _make_color_ref(obj: bpy.types.Object) -> bpy.types.Object:
                 bpy.ops.object.modifier_apply(modifier=mod.name)
             except RuntimeError:
                 ref_obj.modifiers.remove(mod)
+
+    # Auto-repair materials that the color sampler can't read
+    # (Sketchfab unlit, missing Principled BSDF, wrong texture wired to Base Color)
+    _repair_materials(ref_obj)
 
     print(f"[LOG] Created color reference '{ref_obj.name}'")
     return ref_obj
@@ -486,11 +606,27 @@ def run_pipeline(
     if len(centers) == 0:
         raise ValueError("No voxel cubes found — the GN modifier may not have produced geometry")
 
-    # Step 4: Sample colors from reference mesh
-    print(f"[LOG] Sampling colors from '{ref_obj.name}'...")
+    # Step 4: Sample colors from reference mesh using multi-point jitter.
+    # For each voxel, sample the center plus 6 axis-aligned offsets and pick
+    # the most frequent color (majority vote). This reduces color bleeding at
+    # boundaries between different-colored regions.
+    jitter = voxel_size * 0.3  # 30% of voxel size
+    offsets = [
+        Vector((0, 0, 0)),
+        Vector((jitter, 0, 0)), Vector((-jitter, 0, 0)),
+        Vector((0, jitter, 0)), Vector((0, -jitter, 0)),
+        Vector((0, 0, jitter)), Vector((0, 0, -jitter)),
+    ]
+
+    print(f"[LOG] Sampling colors from '{ref_obj.name}' (7-point jitter)...")
     colors: List[str] = []
     for i, center in enumerate(centers):
-        color_hex = sample_color_at_point(bvh, center, ref_mesh, ref_obj)
+        votes: Dict[str, int] = {}
+        for offset in offsets:
+            c = sample_color_at_point(bvh, center + offset, ref_mesh, ref_obj)
+            votes[c] = votes.get(c, 0) + 1
+        # Pick the color with the most votes
+        color_hex = max(votes, key=votes.get)
         colors.append(color_hex)
         if (i + 1) % 500 == 0:
             print(f"[LOG] Sampled {i + 1}/{len(centers)} colors...")
@@ -536,6 +672,10 @@ def parse_args() -> argparse.Namespace:
         help="Voxel cube edge length (default: 0.06)",
     )
     parser.add_argument("--output", required=True, help="Output JSON path")
+    parser.add_argument(
+        "--bounds-only", action="store_true",
+        help="Only compute mesh bounding box dimensions (skip voxelization)",
+    )
     return parser.parse_args(argv)
 
 
@@ -552,6 +692,23 @@ def main() -> None:
         already_voxelized = True
 
     print(f"[LOG] Target: '{obj_name}', voxel_size={args.voxel_size}, already_voxelized={already_voxelized}")
+
+    if args.bounds_only:
+        obj = bpy.data.objects.get(obj_name)
+        if obj is None:
+            raise ValueError(f"Object not found: {obj_name}")
+        # Get world-space bounding box dimensions
+        dims = obj.dimensions
+        bounds = {
+            "width": round(float(dims.x), 6),
+            "depth": round(float(dims.y), 6),
+            "height": round(float(dims.z), 6),
+        }
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+        with open(args.output, "w") as f:
+            json.dump(bounds, f)
+        print(f"[OK] Bounds: {bounds['width']} x {bounds['depth']} x {bounds['height']}")
+        return
 
     run_pipeline(
         object_name=obj_name,

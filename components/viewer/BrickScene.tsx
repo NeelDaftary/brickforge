@@ -93,7 +93,6 @@ export function BrickScene({
 
         // Layer-aware visibility in edit mode (add/erase only, not paint)
         let hidden = false;
-        let layerFaded = false;
         let adjacentLayer = false;
         if (hasLayerView && brickGz != null) {
           const dist = Math.abs(brickGz - activeLayer);
@@ -108,9 +107,8 @@ export function BrickScene({
           }
         }
 
-        const faded = layerFaded || (viewMode === 'step' && brick.step < currentStep);
+        const faded = viewMode === 'step' && brick.step < currentStep;
         const highlighted = !editMode && viewMode === 'step' && brick.step === currentStep;
-        const yOffset = 0;
 
         // Stability flags
         const cellKey = brickGz != null ? `${brick.metadata!.gx},${brick.metadata!.gy},${brickGz}` : '';
@@ -123,7 +121,6 @@ export function BrickScene({
             brick={brick}
             faded={faded}
             highlighted={highlighted}
-            yOffset={yOffset}
             hidden={hidden}
             adjacentLayer={adjacentLayer}
             unstable={unstable}

@@ -64,6 +64,7 @@ export interface VoxelPipelineOptions {
   name?: string;
   description?: string;
   shell?: boolean;
+  fill?: boolean;
 }
 
 export interface VoxelPipelineResult {
@@ -93,6 +94,81 @@ export interface VoxelPipelineResult {
       budgetUsed: number;
     };
   };
+}
+
+// ─── Mesh Bounds ──────────────────────────────────────────────────────────────
+
+export interface MeshBounds {
+  width: number;
+  depth: number;
+  height: number;
+  maxExtent: number;
+}
+
+/**
+ * Get the world-space bounding box of a mesh via a lightweight Blender call.
+ * Much faster than full voxelization — just imports + reads dimensions.
+ */
+export async function getMeshBounds(meshPath: string, objectName?: string): Promise<MeshBounds> {
+  const blenderCheck = await validateBlenderBinary();
+  if (!blenderCheck.valid) {
+    throw new PipelineError(blenderCheck.error ?? 'Blender not available');
+  }
+
+  const preflight = await preflightMeshPath(meshPath);
+  if (!preflight.shouldProceed) {
+    throw new PipelineError(preflight.errors.join(' '), preflight);
+  }
+
+  await mkdir(TMP_VOXELS_DIR, { recursive: true });
+
+  const runId = `${Date.now()}-${randomUUID()}`;
+  const outputPath = path.join(TMP_VOXELS_DIR, `${runId}.bounds.json`);
+  const blenderBin = getBlenderBinary();
+
+  try {
+    const blenderArgs: string[] = ['--background'];
+    const scriptArgs: string[] = [
+      '--bounds-only',
+      '--output', outputPath,
+    ];
+
+    if (preflight.format === 'blend') {
+      blenderArgs.splice(1, 0, preflight.resolvedPath);
+      if (objectName) {
+        scriptArgs.push('--object', objectName);
+      }
+    } else {
+      scriptArgs.push('--import', preflight.resolvedPath);
+    }
+
+    blenderArgs.push('--python', BLENDER_VOXEL_TO_GRID_SCRIPT, '--', ...scriptArgs);
+
+    await execFileAsync(blenderBin, blenderArgs, {
+      timeout: 30000,
+      maxBuffer: 5 * 1024 * 1024,
+    });
+
+    const raw = await readFile(outputPath, 'utf8');
+    const bounds = JSON.parse(raw) as { width: number; depth: number; height: number };
+
+    return {
+      ...bounds,
+      maxExtent: Math.max(bounds.width, bounds.depth, bounds.height),
+    };
+  } finally {
+    await rm(outputPath, { force: true }).catch(() => {});
+  }
+}
+
+/**
+ * Compute voxel size from mesh extent and target stud count.
+ * Rounds UP to the nearest 0.01 so the grid never exceeds the target.
+ */
+export function computeVoxelSize(maxExtent: number, targetStuds: number): number {
+  const raw = maxExtent / targetStuds;
+  const rounded = Math.ceil(raw * 100) / 100;
+  return Math.max(0.02, Math.min(0.5, rounded));
 }
 
 // ─── Pipeline ─────────────────────────────────────────────────────────────────
@@ -183,7 +259,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     }
 
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-    const model = voxelGridToBrickModel(voxelGrid, name, description, { shell });
+    const model = voxelGridToBrickModel(voxelGrid, name, description, { shell, fill: options.fill });
 
     // Step 4: Graduated stability check
     const stability = checkBrickStability(model.bricks);
@@ -191,8 +267,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
       warnings.push(...stability.warnings);
     }
 
-    const refinementStats = (model as { refinementStats?: { regionsFound: number; regionsImproved: number; criticalBefore: number; criticalAfter: number; weakBefore: number; weakAfter: number; elapsedMs: number } }).refinementStats;
-    const fillStats = (model as { fillStats?: { cellsFilled: number; columnsBuilt: number; budgetUsed: number } }).fillStats;
+    const { refinementStats, fillStats } = model;
 
     return {
       model,

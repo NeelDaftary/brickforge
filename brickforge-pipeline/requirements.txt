@@ -1,6 +1,0 @@
-# Core optimization pipeline
-numpy
-
-# Voxelizer: mesh loading + point-in-mesh testing
-trimesh
-scipy

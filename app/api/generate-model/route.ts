@@ -8,7 +8,7 @@ import { refinePrompt } from '@/lib/pipeline/prompt-refiner';
  * Server-side text-to-3D generation via Hyper3D Rodin REST API.
  * Returns an SSE stream with progress events.
  *
- * Additive — does NOT replace /api/generate or /api/upload.
+ * Additive — does NOT replace /api/upload.
  *
  * Input: { prompt: string, gridSize?: number }
  * Output: SSE stream of JSON events:
@@ -82,7 +82,6 @@ export async function POST(req: NextRequest) {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
       },
     });
   } catch (error) {
