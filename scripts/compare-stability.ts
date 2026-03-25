@@ -113,26 +113,21 @@ async function main() {
   console.log('\n────────────────────────────────────────');
   console.log('Running BASELINE (refine: false)...');
 
-  const oldModel = voxelGridToBrickModel(voxelGrid, 'baseline', 'baseline', { shell: false, refine: false, fill: false });
+  const oldModel = voxelGridToBrickModel(voxelGrid, 'baseline', 'baseline', { shell: false, refine: false });
   const oldStability = checkBrickStability(oldModel.bricks);
   printStability('BASELINE (no refinement)', oldStability, oldModel.totalBricks);
 
-  // ─── NEW: With refinement + fill ─────────────────────────────────────
+  // ─── NEW: With refinement ──────────────────────────────────────────────
   console.log('\n────────────────────────────────────────');
-  console.log('Running REFINED + FILL (refine: true, fill: true)...');
+  console.log('Running REFINED (refine: true)...');
 
-  const newModel = voxelGridToBrickModel(voxelGrid, 'refined+fill', 'refined+fill', { shell: false, refine: true, fill: true });
+  const newModel = voxelGridToBrickModel(voxelGrid, 'refined', 'refined', { shell: false, refine: true });
   const newStability = checkBrickStability(newModel.bricks);
-  printStability('REFINED + FILL (split-remerge + gap-fill)', newStability, newModel.totalBricks);
-
-  const fillStats = (newModel as { fillStats?: { cellsFilled: number; columnsBuilt: number; budgetUsed: number } }).fillStats;
-  if (fillStats) {
-    console.log(`\n  Fill stats: ${fillStats.cellsFilled} cells filled, ${fillStats.columnsBuilt} columns (${(fillStats.budgetUsed * 100).toFixed(1)}% budget)`);
-  }
+  printStability('REFINED (split-remerge)', newStability, newModel.totalBricks);
 
   // ─── Comparison ────────────────────────────────────────────────────────
   console.log('\n════════════════════════════════════════');
-  console.log('COMPARISON SUMMARY (baseline → refine+fill)');
+  console.log('COMPARISON SUMMARY (baseline → refined)');
   console.log('════════════════════════════════════════');
 
   const arrow = (a: number, b: number) => b < a ? `↓${a - b}` : b > a ? `↑${b - a}` : '=';

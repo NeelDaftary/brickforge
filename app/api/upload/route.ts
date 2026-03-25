@@ -40,7 +40,6 @@ export async function POST(req: NextRequest) {
     const objectName = (formData.get('objectName') as string) || undefined;
     const name = (formData.get('name') as string) || meshFile.name.replace(/\.\w+$/, '');
     const shell = (formData.get('shell') as string) !== 'false';
-    const fill = (formData.get('fill') as string) === 'true';
 
     // Create temp upload directory
     const runId = `${Date.now()}-${randomUUID()}`;
@@ -60,7 +59,6 @@ export async function POST(req: NextRequest) {
       name,
       description: `LEGO build of "${name}"`,
       shell,
-      fill,
     });
 
     return NextResponse.json({

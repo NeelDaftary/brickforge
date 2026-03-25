@@ -64,7 +64,6 @@ export interface VoxelPipelineOptions {
   name?: string;
   description?: string;
   shell?: boolean;
-  fill?: boolean;
 }
 
 export interface VoxelPipelineResult {
@@ -259,7 +258,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     }
 
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-    const model = voxelGridToBrickModel(voxelGrid, name, description, { shell, fill: options.fill });
+    const model = voxelGridToBrickModel(voxelGrid, name, description, { shell });
 
     // Step 4: Graduated stability check
     const stability = checkBrickStability(model.bricks);
@@ -267,7 +266,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
       warnings.push(...stability.warnings);
     }
 
-    const { refinementStats, fillStats } = model;
+    const { refinementStats } = model;
 
     return {
       model,
@@ -290,13 +289,6 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
             weakBefore: refinementStats.weakBefore,
             weakAfter: refinementStats.weakAfter,
             elapsedMs: refinementStats.elapsedMs,
-          },
-        } : {}),
-        ...(fillStats ? {
-          fill: {
-            cellsFilled: fillStats.cellsFilled,
-            columnsBuilt: fillStats.columnsBuilt,
-            budgetUsed: fillStats.budgetUsed,
           },
         } : {}),
       },

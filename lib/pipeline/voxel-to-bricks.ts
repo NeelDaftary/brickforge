@@ -17,7 +17,7 @@
 import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
 import { BRICK_CATALOG } from '@/lib/engine/brick_catalog';
 import { refineStability, type RefinementStats } from '@/lib/pipeline/stability-refiner';
-import { fillGaps, type FillStats } from '@/lib/pipeline/stability-fill';
+// Gap-fill removed — phantom support columns can't be edited by the user
 
 // ─── Brick Sizes ──────────────────────────────────────────────────────────────
 // Derived from catalog (brick type only). Sorted by area descending,
@@ -498,8 +498,8 @@ export function voxelGridToBrickModel(
   voxelData: VoxelGrid,
   name: string,
   description: string,
-  options: { shell?: boolean; refine?: boolean; fill?: boolean } = {},
-): BrickModelData & { refinementStats?: RefinementStats; fillStats?: FillStats } {
+  options: { shell?: boolean; refine?: boolean } = {},
+): BrickModelData & { refinementStats?: RefinementStats } {
   const { grid, colorLegend } = voxelData;
   const d = dims(grid);
 
@@ -535,21 +535,10 @@ export function voxelGridToBrickModel(
     }
   }
 
-  // Phase 2.75: Gap-fill (support bricks)
-  let fillStats: FillStats | undefined;
-  if (options.fill !== false) {
-    const { layers: filled, stats } = fillGaps(layers);
-    layers = filled;
-    fillStats = stats;
-    if (stats.cellsFilled > 0) {
-      console.log(`[fill] ${stats.cellsFilled} cells filled, ${stats.columnsBuilt} columns`);
-    }
-  }
-
   const allBricks = layers.flat();
   console.log(`[pipeline] ${filledCount} voxels → ${allBricks.length} bricks (${(filledCount / Math.max(allBricks.length, 1)).toFixed(1)}x compression)`);
 
   // Phase 3: Convert to viewer format
   const model = layersToModel(layers, d, name, description, voxelData);
-  return { ...model, refinementStats, fillStats };
+  return { ...model, refinementStats };
 }
