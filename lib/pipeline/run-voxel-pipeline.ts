@@ -17,6 +17,7 @@ import {
   BLENDER_VOXEL_TO_GRID_SCRIPT,
   TMP_VOXELS_DIR,
 } from '@/lib/pipeline/paths';
+import { DEFAULT_VOXEL_SIZE, DEFAULT_SHELL_ENABLED } from '@/lib/pipeline/constants';
 
 const execFileAsync = promisify(execFile);
 
@@ -170,10 +171,10 @@ export function computeVoxelSize(maxExtent: number, targetStuds: number): number
 
 export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<VoxelPipelineResult> {
   const startedAt = Date.now();
-  const voxelSize = options.voxelSize ?? 0.06;
+  const voxelSize = options.voxelSize ?? DEFAULT_VOXEL_SIZE;
   const name = options.name ?? 'Generated Build';
   const description = options.description ?? 'LEGO build generated from 3D model';
-  const shell = options.shell ?? false;
+  const shell = options.shell ?? DEFAULT_SHELL_ENABLED;
 
   // Step 0: Validate Blender
   const blenderCheck = await validateBlenderBinary();

@@ -12,10 +12,11 @@
  */
 
 import type { BrickInstance } from '@/lib/engine/types';
+import { classifySupport, type StabilityTier } from './stability-tiers';
 
 interface BrickSupportInfo {
   supportRatio: number;
-  tier: 'critical' | 'weak' | 'marginal' | 'stable';
+  tier: StabilityTier;
   supportedStuds: number;
   totalStuds: number;
 }
@@ -107,21 +108,12 @@ export function checkBrickStability(bricks: BrickInstance[]): StabilityResult {
     }
 
     const supportRatio = supportedStuds / totalStuds;
-    let tier: BrickSupportInfo['tier'];
+    const tier = classifySupport({ supportRatio, lockedFromAbove, isGround: false });
 
-    if (supportRatio >= 0.5) {
-      tier = 'stable';
-      stableCount++;
-    } else if (lockedFromAbove) {
-      tier = 'marginal';
-      marginalCount++;
-    } else if (supportRatio >= 0.25) {
-      tier = 'weak';
-      weakCount++;
-    } else {
-      tier = 'critical';
-      criticalCount++;
-    }
+    if (tier === 'stable') stableCount++;
+    else if (tier === 'marginal') marginalCount++;
+    else if (tier === 'weak') weakCount++;
+    else criticalCount++;
 
     brickSupport.set(brick.id, { supportRatio, tier, supportedStuds, totalStuds });
   }

@@ -17,6 +17,16 @@
 import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
 import { BRICK_CATALOG } from '@/lib/engine/brick_catalog';
 import { refineStability, buildOccupiedSet, type RefinementStats } from '@/lib/pipeline/stability-refiner';
+import {
+  SHELL_THRESHOLD,
+  SHELL_DEPTH,
+  COVERAGE_WEIGHT,
+  STRADDLE_BONUS,
+  FULLY_SUPPORTED_BONUS,
+  SUPPORTED_SURFACE_REWARD,
+  UNSUPPORTED_SURFACE_PENALTY,
+  DEFAULT_SHELL_ENABLED,
+} from '@/lib/pipeline/constants';
 
 // ─── Brick Sizes ──────────────────────────────────────────────────────────────
 // Derived from catalog (brick type only). Sorted by area descending,
@@ -107,9 +117,6 @@ function cloneGrid(grid: string[][][]): string[][][] {
 }
 
 // ─── Phase 0: Shell ───────────────────────────────────────────────────────────
-
-const SHELL_THRESHOLD = 15; // don't shell small models
-const SHELL_DEPTH = 2;      // keep 2 voxels of shell
 
 function shell(grid: string[][][], d: Dims): string[][][] {
   if (Math.min(d.sx, d.sy, d.sz) <= SHELL_THRESHOLD) return grid;
@@ -303,14 +310,9 @@ function resolveColor(
 }
 
 /**
- * Score a candidate brick set — higher is better.
- *
- * Primary: cell coverage (× 10).
- * Secondary: support-aware bonuses/penalties for z > 0:
- *   - Brick straddles support boundary: +3 (best interlocking)
- *   - Brick fully supported: +1
- *   - Surface voxel that IS supported: +2 per cell
- *   - Surface voxel with ZERO support: -15 per cell (penalty > 1 cell of coverage)
+ * Score a candidate brick set — higher is better. All weights live in
+ * constants.ts; see COVERAGE_WEIGHT, STRADDLE_BONUS, FULLY_SUPPORTED_BONUS,
+ * SUPPORTED_SURFACE_REWARD, UNSUPPORTED_SURFACE_PENALTY.
  */
 function scoreCandidateSet(
   candidate: PlacedBrick[],
@@ -347,19 +349,17 @@ function scoreCandidateSet(
       }
     }
 
-    // Straddling bonus: brick overlaps support boundary — creates interlocking
     if (supportedCells > 0 && supportedCells < total) {
-      supportScore += 3;
+      supportScore += STRADDLE_BONUS;
     } else if (supportedCells === total) {
-      supportScore += 1;
+      supportScore += FULLY_SUPPORTED_BONUS;
     }
 
-    // Surface support: reward supported surface voxels, penalize unsupported
-    supportScore += surfaceSupported * 2;
-    supportScore -= surfaceUnsupported * 15;
+    supportScore += surfaceSupported * SUPPORTED_SURFACE_REWARD;
+    supportScore -= surfaceUnsupported * UNSUPPORTED_SURFACE_PENALTY;
   }
 
-  return cellsClaimed * 10 + supportScore;
+  return cellsClaimed * COVERAGE_WEIGHT + supportScore;
 }
 
 /**
@@ -588,11 +588,13 @@ export function voxelGridToBrickModel(
 ): BrickModelData & { refinementStats?: RefinementStats } {
   const { grid, colorLegend } = voxelData;
   const d = dims(grid);
+  const shellEnabled = options.shell ?? DEFAULT_SHELL_ENABLED;
+  const refineEnabled = options.refine ?? true;
 
   console.log(`[pipeline] Grid: [${d.sx}][${d.sy}][${d.sz}]`);
 
   // Phase 0: Shell
-  const shelledGrid = options.shell !== false ? shell(grid, d) : grid;
+  const shelledGrid = shellEnabled ? shell(grid, d) : grid;
 
   // Phase 0.5: Mark interior wildcards
   const { grid: processed, wildcardColors, isSurface } = markWildcards(shelledGrid, d);
@@ -612,7 +614,7 @@ export function voxelGridToBrickModel(
 
   // Phase 2.5: Stability refinement (split-remerge)
   let refinementStats: RefinementStats | undefined;
-  if (options.refine !== false) {
+  if (refineEnabled) {
     const { layers: refined, stats } = refineStability(layers);
     layers = refined;
     refinementStats = stats;

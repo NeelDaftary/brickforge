@@ -1,7 +1,7 @@
 /**
  * Stability Refiner — Neighborhood split-remerge for better inter-layer overlap.
  *
- * For each weak/critical brick, expands a 2-ring neighborhood on the same layer,
+ * For each weak/critical brick, expands a ring-N neighborhood on the same layer
  * decomposes all bricks in that region to 1×1 cells, then re-merges with a
  * shuffled visitation order. Accepts the new tiling only if stability improves.
  *
@@ -11,13 +11,22 @@
 
 import type { PlacedBrick } from './voxel-to-bricks';
 import { BRICK_SIZES, isValidBrickSize } from './voxel-to-bricks';
+import { classifySupport, type StabilityTier } from './stability-tiers';
+import {
+  TIER_SCORES,
+  REFINER_MAX_ATTEMPTS_PER_REGION,
+  REFINER_MAX_PASSES,
+  REFINER_DEFAULT_SEED,
+  REFINER_NEIGHBORHOOD_RINGS,
+} from './constants';
 
 // ─── Public types ────────────────────────────────────────────────────────────
 
 export interface RefinementConfig {
-  maxAttemptsPerRegion?: number; // default 50
-  maxPasses?: number;            // default 3
-  seed?: number;                 // for reproducible tests
+  /** Defaults come from lib/pipeline/constants.ts. */
+  maxAttemptsPerRegion?: number;
+  maxPasses?: number;
+  seed?: number;
 }
 
 export interface RefinementStats {
@@ -51,8 +60,6 @@ function mulberry32(seed: number): () => number {
 
 // ─── Stability scoring ──────────────────────────────────────────────────────
 
-type Tier = 'critical' | 'weak' | 'marginal' | 'stable';
-
 export function buildOccupiedSet(bricks: PlacedBrick[]): Set<string> {
   const set = new Set<string>();
   for (const b of bricks) {
@@ -67,35 +74,25 @@ export function classifyBrick(
   b: PlacedBrick,
   belowOccupied: Set<string>,
   aboveOccupied: Set<string>,
-): Tier {
-  if (b.z === 0) return 'stable';
-
+): StabilityTier {
   const total = b.w * b.d;
   let supported = 0;
-  for (let dx = 0; dx < b.w; dx++)
-    for (let dy = 0; dy < b.d; dy++)
-      if (belowOccupied.has(`${b.x + dx},${b.y + dy}`)) supported++;
-
-  const ratio = supported / total;
-
-  if (ratio >= 0.5) return 'stable';
-
   let lockedFromAbove = false;
-  for (let dx = 0; dx < b.w && !lockedFromAbove; dx++)
-    for (let dy = 0; dy < b.d && !lockedFromAbove; dy++)
-      if (aboveOccupied.has(`${b.x + dx},${b.y + dy}`)) lockedFromAbove = true;
 
-  if (lockedFromAbove) return 'marginal';
-  if (ratio >= 0.25) return 'weak';
-  return 'critical';
+  for (let dx = 0; dx < b.w; dx++) {
+    for (let dy = 0; dy < b.d; dy++) {
+      const key = `${b.x + dx},${b.y + dy}`;
+      if (belowOccupied.has(key)) supported++;
+      if (aboveOccupied.has(key)) lockedFromAbove = true;
+    }
+  }
+
+  return classifySupport({
+    supportRatio: supported / total,
+    lockedFromAbove,
+    isGround: b.z === 0,
+  });
 }
-
-const TIER_SCORE: Record<Tier, number> = {
-  critical: -100,
-  weak: -10,
-  marginal: -1,
-  stable: 1,
-};
 
 function scoreLayers(layers: PlacedBrick[][]): number {
   let score = 0;
@@ -103,7 +100,7 @@ function scoreLayers(layers: PlacedBrick[][]): number {
     const below = z > 0 ? buildOccupiedSet(layers[z - 1]) : new Set<string>();
     const above = z < layers.length - 1 ? buildOccupiedSet(layers[z + 1]) : new Set<string>();
     for (const b of layers[z]) {
-      score += TIER_SCORE[classifyBrick(b, below, above)];
+      score += TIER_SCORES[classifyBrick(b, below, above)];
     }
   }
   return score;
@@ -123,7 +120,7 @@ function countTiers(layers: PlacedBrick[][]): { critical: number; weak: number; 
 
 // ─── Neighborhood discovery ──────────────────────────────────────────────────
 
-/** Find the 2-ring 4-connected neighborhood of a brick on its layer. */
+/** Find the ring-N 4-connected neighborhood of a brick on its layer. */
 function findNeighborhood(target: PlacedBrick, layer: PlacedBrick[]): Set<PlacedBrick> {
   // Build cell → brick lookup for the layer
   const cellToBrick = new Map<string, PlacedBrick>();
@@ -136,8 +133,7 @@ function findNeighborhood(target: PlacedBrick, layer: PlacedBrick[]): Set<Placed
   const neighborhood = new Set<PlacedBrick>();
   neighborhood.add(target);
 
-  // Expand 2 rings via 4-connected adjacency
-  for (let ring = 0; ring < 2; ring++) {
+  for (let ring = 0; ring < REFINER_NEIGHBORHOOD_RINGS; ring++) {
     const frontier = new Set<PlacedBrick>();
     for (const b of neighborhood) {
       for (let dx = -1; dx <= b.w; dx++) {
@@ -266,9 +262,9 @@ export function refineStability(
   layers: PlacedBrick[][],
   config?: RefinementConfig,
 ): RefinementResult {
-  const maxAttempts = config?.maxAttemptsPerRegion ?? 50;
-  const maxPasses = config?.maxPasses ?? 3;
-  const rng = mulberry32(config?.seed ?? 42);
+  const maxAttempts = config?.maxAttemptsPerRegion ?? REFINER_MAX_ATTEMPTS_PER_REGION;
+  const maxPasses = config?.maxPasses ?? REFINER_MAX_PASSES;
+  const rng = mulberry32(config?.seed ?? REFINER_DEFAULT_SEED);
   const startMs = Date.now();
 
   // Deep-clone layers
