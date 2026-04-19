@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import type { PipelineStage } from '@/lib/pipeline/types';
+import { FileDropZone } from './shared/FileDropZone';
 
 interface MeshBounds {
   width: number;
@@ -42,38 +43,15 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
   const [targetStuds, setTargetStuds] = useState(40);
   const [objectName, setObjectName] = useState('');
   const [hollow, setHollow] = useState(false);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isMeasuring, setIsMeasuring] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const selectFile = useCallback((f: File) => {
-    if (f.name.toLowerCase().endsWith('.blend')) {
-      setFile(f);
-      setBounds(null);
-    }
+    setFile(f);
+    setBounds(null);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) selectFile(f);
-  }, [selectFile]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setIsDragOver(false);
-  }, []);
-
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) selectFile(f);
-  }, [selectFile]);
+  const acceptBlend = useCallback((f: File) => f.name.toLowerCase().endsWith('.blend'), []);
 
   function clearAll() {
     setFile(null);
@@ -164,38 +142,21 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
   // Empty state: drop zone
   if (!file) {
     return (
-      <div
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        className={`w-full border-2 border-dashed rounded-card p-8 flex flex-col items-center gap-3 transition-all duration-200 cursor-pointer ${
-          isDragOver
-            ? 'border-brick-red bg-[#FFF5F5]'
-            : 'border-[#DDDDDD] bg-surface hover:border-[#BBBBBB]'
-        } ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-        onClick={() => inputRef.current?.click()}
-      >
-        <div className="text-[40px] leading-none">
+      <FileDropZone
+        accept=".blend"
+        acceptFile={acceptBlend}
+        onFile={selectFile}
+        disabled={isDisabled}
+        label="Drop a .blend file here"
+        hint="or click to browse"
+        icon={
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#999999" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
             <polyline points="17 8 12 3 7 8" />
             <line x1="12" y1="3" x2="12" y2="15" />
           </svg>
-        </div>
-        <div className="text-sm font-semibold text-[#666666]">
-          Drop a .blend file here
-        </div>
-        <div className="text-xs text-[#999999]">
-          or click to browse
-        </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept=".blend"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-      </div>
+        }
+      />
     );
   }
 

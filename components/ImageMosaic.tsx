@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import type { PipelineStage } from '@/lib/pipeline/types';
 import { imageToMosaicGrid, loadImageFile, type MosaicPreview } from '@/lib/mosaic/image-to-grid';
 import { mosaicGridToModel } from '@/lib/mosaic/mosaic-combiner';
+import { FileDropZone } from './shared/FileDropZone';
 
 interface ImageMosaicProps {
   onResult: (model: unknown) => void;
@@ -30,13 +31,10 @@ export function ImageMosaic({ onResult, onError, onStageChange, disabled }: Imag
   const [targetStuds, setTargetStuds] = useState(48);
   const [mergePlates, setMergePlates] = useState(true);
   const [preview, setPreview] = useState<MosaicPreview | null>(null);
-  const [isDragOver, setIsDragOver] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement>(null);
 
   const selectFile = useCallback(async (f: File) => {
-    if (!isAcceptedImage(f)) return;
     setFile(f);
     setPreview(null);
     try {
@@ -57,14 +55,21 @@ export function ImageMosaic({ onResult, onError, onStageChange, disabled }: Imag
     canvas.width = p.width;
     canvas.height = p.height;
     const ctx = canvas.getContext('2d')!;
-    for (let y = 0; y < p.height; y++) {
-      for (let x = 0; x < p.width; x++) {
-        const hex = p.pixels[y * p.width + x];
-        if (hex === 'transparent') continue;
-        ctx.fillStyle = hex;
-        ctx.fillRect(x, y, 1, 1);
+    const imageData = ctx.createImageData(p.width, p.height);
+    const data = imageData.data;
+    for (let i = 0; i < p.pixels.length; i++) {
+      const hex = p.pixels[i];
+      const o = i * 4;
+      if (hex === 'transparent') {
+        data[o + 3] = 0;
+        continue;
       }
+      data[o] = parseInt(hex.slice(1, 3), 16);
+      data[o + 1] = parseInt(hex.slice(3, 5), 16);
+      data[o + 2] = parseInt(hex.slice(5, 7), 16);
+      data[o + 3] = 255;
     }
+    ctx.putImageData(imageData, 0, 0);
   }
 
   function handleStudsChange(studs: number) {
@@ -74,27 +79,6 @@ export function ImageMosaic({ onResult, onError, onStageChange, disabled }: Imag
     setPreview(p);
     drawPreview(p);
   }
-
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    const f = e.dataTransfer.files[0];
-    if (f) selectFile(f);
-  }, [selectFile]);
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  }, []);
-
-  const handleDragLeave = useCallback(() => {
-    setIsDragOver(false);
-  }, []);
-
-  const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (f) selectFile(f);
-  }, [selectFile]);
 
   function clearAll() {
     setFile(null);
@@ -141,38 +125,21 @@ export function ImageMosaic({ onResult, onError, onStageChange, disabled }: Imag
   // Empty state: drop zone
   if (!file) {
     return (
-      <div
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
-        className={`w-full border-2 border-dashed rounded-card p-8 flex flex-col items-center gap-3 transition-all duration-200 cursor-pointer ${
-          isDragOver
-            ? 'border-brick-red bg-[#FFF5F5]'
-            : 'border-[#DDDDDD] bg-surface hover:border-[#BBBBBB]'
-        } ${isDisabled ? 'opacity-50 pointer-events-none' : ''}`}
-        onClick={() => inputRef.current?.click()}
-      >
-        <div className="text-[40px] leading-none">
+      <FileDropZone
+        accept="image/jpeg,image/png,image/webp"
+        acceptFile={isAcceptedImage}
+        onFile={selectFile}
+        disabled={isDisabled}
+        label="Drop an image here for a LEGO mosaic"
+        hint="JPG, PNG, or WebP"
+        icon={
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#999999" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
             <circle cx="8.5" cy="8.5" r="1.5" />
             <polyline points="21 15 16 10 5 21" />
           </svg>
-        </div>
-        <div className="text-sm font-semibold text-[#666666]">
-          Drop an image here for a LEGO mosaic
-        </div>
-        <div className="text-xs text-[#999999]">
-          JPG, PNG, or WebP
-        </div>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={handleFileSelect}
-        />
-      </div>
+        }
+      />
     );
   }
 
