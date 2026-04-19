@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server';
 import { generateModel } from '@/lib/pipeline/hyper3d-client';
 import { refinePrompt } from '@/lib/pipeline/prompt-refiner';
+import { PipelineError, toErrorPayload } from '@/lib/pipeline/errors';
 
 /**
  * POST /api/generate-model
@@ -8,13 +9,11 @@ import { refinePrompt } from '@/lib/pipeline/prompt-refiner';
  * Server-side text-to-3D generation via Hyper3D Rodin REST API.
  * Returns an SSE stream with progress events.
  *
- * Additive — does NOT replace /api/upload.
- *
  * Input: { prompt: string, gridSize?: number }
  * Output: SSE stream of JSON events:
  *   { type: "progress", stage, message, progress }
  *   { type: "complete", meshPath, fileName, prompt, suggestedGridSize }
- *   { type: "error", error }
+ *   { type: "error", error, code }
  */
 export async function POST(req: NextRequest) {
   try {
@@ -22,17 +21,16 @@ export async function POST(req: NextRequest) {
     const prompt = body.prompt?.trim();
 
     if (!prompt) {
-      return new Response(JSON.stringify({ error: 'Missing prompt' }), {
-        status: 400,
+      const { status, payload } = toErrorPayload(new PipelineError('INVALID_INPUT', 'Missing prompt'));
+      return new Response(JSON.stringify(payload), {
+        status,
         headers: { 'Content-Type': 'application/json' },
       });
     }
 
-    // Quick metadata from prompt refiner (grid size, complexity)
     const refined = refinePrompt(prompt);
     const suggestedGridSize = body.gridSize ?? refined.suggestedGridSize;
 
-    // Create SSE stream
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
@@ -50,7 +48,6 @@ export async function POST(req: NextRequest) {
               result = value;
               break;
             }
-            // value is a GenerationProgress
             send({
               type: 'progress',
               stage: value.stage,
@@ -59,7 +56,6 @@ export async function POST(req: NextRequest) {
             });
           }
 
-          // Send final result
           send({
             type: 'complete',
             meshPath: result.meshPath,
@@ -69,9 +65,11 @@ export async function POST(req: NextRequest) {
             estimatedComplexity: refined.estimatedComplexity,
           });
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Generation failed';
-          console.error('[generate-model] Error:', error);
-          send({ type: 'error', error: message });
+          if (!(error instanceof PipelineError)) {
+            console.error('[generate-model] Error:', error);
+          }
+          const { payload } = toErrorPayload(error, 'Generation failed');
+          send({ type: 'error', error: payload.error, code: payload.code, ...(payload.details ? { details: payload.details } : {}) });
         } finally {
           controller.close();
         }
@@ -85,9 +83,10 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Generation failed';
-    return new Response(JSON.stringify({ error: message }), {
-      status: 500,
+    console.error('[generate-model] Setup error:', error);
+    const { status, payload } = toErrorPayload(error, 'Generation failed');
+    return new Response(JSON.stringify(payload), {
+      status,
       headers: { 'Content-Type': 'application/json' },
     });
   }

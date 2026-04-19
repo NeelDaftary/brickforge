@@ -17,6 +17,7 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { TMP_MESHES_DIR } from '@/lib/pipeline/paths';
+import { PipelineError } from '@/lib/pipeline/errors';
 
 const RODIN_API = 'https://api.hyper3d.com/api/v2';
 const POLL_INTERVAL_MS = 5000;
@@ -61,9 +62,9 @@ interface RodinDownloadResponse {
 function getApiKey(): string {
   const key = process.env.RODIN_API_KEY;
   if (!key) {
-    throw new Error(
-      'RODIN_API_KEY environment variable is not set. ' +
-      'Get your API key at https://developer.hyper3d.ai/',
+    throw new PipelineError(
+      'HYPER3D_FAILED',
+      'RODIN_API_KEY environment variable is not set. Get your API key at https://developer.hyper3d.ai/',
     );
   }
   return key;
@@ -86,7 +87,9 @@ async function submitTask(prompt: string): Promise<RodinSubmitResponse> {
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Rodin submit failed (${res.status}): ${text}`);
+    throw new PipelineError('HYPER3D_FAILED', `Rodin submit failed (${res.status}): ${text}`, {
+      details: { status: res.status },
+    });
   }
 
   return res.json() as Promise<RodinSubmitResponse>;
@@ -104,7 +107,9 @@ async function checkStatus(subscriptionKey: string): Promise<Record<string, stri
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Rodin status check failed (${res.status}): ${text}`);
+    throw new PipelineError('HYPER3D_FAILED', `Rodin status check failed (${res.status}): ${text}`, {
+      details: { status: res.status },
+    });
   }
 
   const data = await res.json() as RodinStatusResponse;
@@ -131,7 +136,9 @@ async function getDownloadUrls(taskUuid: string): Promise<RodinDownloadResponse>
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Rodin download failed (${res.status}): ${text}`);
+    throw new PipelineError('HYPER3D_FAILED', `Rodin download failed (${res.status}): ${text}`, {
+      details: { status: res.status },
+    });
   }
 
   return res.json() as Promise<RodinDownloadResponse>;
@@ -159,7 +166,7 @@ export async function* generateModel(
 
   const submitRes = await submitTask(prompt);
   if (submitRes.error) {
-    throw new Error(`Rodin error: ${submitRes.error}`);
+    throw new PipelineError('HYPER3D_FAILED', `Rodin error: ${submitRes.error}`);
   }
 
   const taskUuid = submitRes.uuid;
@@ -176,9 +183,8 @@ export async function* generateModel(
     const statuses = await checkStatus(subscriptionKey);
     const statusValues = Object.values(statuses);
 
-    // Check for failure
     if (statusValues.some((s) => s === 'Failed')) {
-      throw new Error('Hyper3D Rodin generation failed');
+      throw new PipelineError('HYPER3D_FAILED', 'Hyper3D Rodin generation failed');
     }
 
     // Check if all done
@@ -201,7 +207,7 @@ export async function* generateModel(
   }
 
   if (lastStatus !== 'Done') {
-    throw new Error('Hyper3D Rodin generation timed out');
+    throw new PipelineError('HYPER3D_TIMEOUT', 'Hyper3D Rodin generation timed out');
   }
 
   yield { stage: 'downloading', message: 'Downloading 3D model...', progress: 75 };
@@ -209,7 +215,7 @@ export async function* generateModel(
   // Step 3: Get download URLs
   const downloadRes = await getDownloadUrls(taskUuid);
   if (downloadRes.error) {
-    throw new Error(`Rodin download error: ${downloadRes.error}`);
+    throw new PipelineError('HYPER3D_FAILED', `Rodin download error: ${downloadRes.error}`);
   }
 
   // Find the GLB file
@@ -219,7 +225,7 @@ export async function* generateModel(
   if (!glbFile) {
     // Fallback: take the first file
     if (downloadRes.list.length === 0) {
-      throw new Error('No files returned from Rodin');
+      throw new PipelineError('HYPER3D_FAILED', 'No files returned from Rodin');
     }
     console.warn('[hyper3d] No .glb found, using first file:', downloadRes.list[0].name);
   }
@@ -229,7 +235,9 @@ export async function* generateModel(
   // Step 4: Download the file
   const fileRes = await fetch(fileToDownload.url);
   if (!fileRes.ok) {
-    throw new Error(`Failed to download model file: ${fileRes.status}`);
+    throw new PipelineError('HYPER3D_FAILED', `Failed to download model file: ${fileRes.status}`, {
+      details: { status: fileRes.status },
+    });
   }
 
   const buffer = Buffer.from(await fileRes.arrayBuffer());

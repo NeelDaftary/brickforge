@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { getMeshBounds, PipelineError } from '@/lib/pipeline/run-voxel-pipeline';
+import { getMeshBounds } from '@/lib/pipeline/run-voxel-pipeline';
+import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
 
 /**
@@ -22,22 +23,15 @@ export async function POST(req: NextRequest) {
 
     const meshFile = formData.get('mesh') as File | null;
     if (!meshFile || !(meshFile instanceof File)) {
-      return NextResponse.json(
-        { error: 'Missing required .blend file' },
-        { status: 400 },
-      );
+      throw new PipelineError('INVALID_INPUT', 'Missing required .blend file');
     }
 
     if (!meshFile.name.toLowerCase().endsWith('.blend')) {
-      return NextResponse.json(
-        { error: 'Only .blend files are supported' },
-        { status: 400 },
-      );
+      throw new PipelineError('UPLOAD_INVALID_FILE', 'Only .blend files are supported');
     }
 
     const objectName = (formData.get('objectName') as string) || undefined;
 
-    // Save to temp directory
     const runId = `${Date.now()}-${randomUUID()}`;
     uploadDir = path.join(TMP_UPLOADS_DIR, runId);
     await mkdir(uploadDir, { recursive: true });
@@ -50,15 +44,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(bounds);
   } catch (error) {
-    if (error instanceof PipelineError) {
-      return NextResponse.json(
-        { error: error.message },
-        { status: 400 },
-      );
+    if (!(error instanceof PipelineError)) {
+      console.error('Mesh bounds error:', error);
     }
-    const message = error instanceof Error ? error.message : 'Failed to read mesh bounds';
-    console.error('Mesh bounds error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return errorResponse(error, 'Failed to read mesh bounds');
   } finally {
     if (uploadDir) {
       await rm(uploadDir, { recursive: true, force: true }).catch(() => {});

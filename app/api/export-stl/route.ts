@@ -5,6 +5,7 @@ import { generateBOM } from '@/lib/engine/bom-generator';
 import { packBed } from '@/lib/export/bed-packer';
 import { plateToSTL } from '@/lib/export/stl-writer';
 import { planPrintBeds } from '@/lib/export/print-planner';
+import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,7 +15,7 @@ export async function POST(req: NextRequest) {
     };
 
     if (!model?.bricks?.length) {
-      return NextResponse.json({ error: 'No bricks in model' }, { status: 400 });
+      throw new PipelineError('INVALID_INPUT', 'No bricks in model');
     }
 
     const safeName = (exportName || model.name || 'build')
@@ -75,7 +76,9 @@ export async function POST(req: NextRequest) {
       },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Export failed';
-    return NextResponse.json({ error: message }, { status: 500 });
+    if (!(err instanceof PipelineError)) {
+      console.error('Export error:', err);
+    }
+    return errorResponse(err, 'Export failed');
   }
 }

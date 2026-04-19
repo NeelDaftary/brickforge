@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { writeFile, mkdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { runVoxelPipeline, PipelineError } from '@/lib/pipeline/run-voxel-pipeline';
+import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
+import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
@@ -29,9 +30,8 @@ export async function POST(req: NextRequest) {
   // Short-circuit oversized uploads before buffering the body
   const declared = req.headers.get('content-length');
   if (declared && Number(declared) > MAX_UPLOAD_BYTES) {
-    return NextResponse.json(
-      { error: `Upload exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit` },
-      { status: 413 },
+    return errorResponse(
+      new PipelineError('UPLOAD_TOO_LARGE', `Upload exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`),
     );
   }
 
@@ -42,24 +42,15 @@ export async function POST(req: NextRequest) {
 
     const meshFile = formData.get('mesh') as File | null;
     if (!meshFile || !(meshFile instanceof File)) {
-      return NextResponse.json(
-        { error: 'Missing required .blend file' },
-        { status: 400 },
-      );
+      throw new PipelineError('INVALID_INPUT', 'Missing required .blend file');
     }
 
     if (meshFile.size > MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        { error: `File exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit` },
-        { status: 413 },
-      );
+      throw new PipelineError('UPLOAD_TOO_LARGE', `File exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`);
     }
 
     if (!meshFile.name.toLowerCase().endsWith('.blend')) {
-      return NextResponse.json(
-        { error: 'Only .blend files are supported for upload' },
-        { status: 400 },
-      );
+      throw new PipelineError('UPLOAD_INVALID_FILE', 'Only .blend files are supported for upload');
     }
 
     const voxelSize = parseFloat(formData.get('voxelSize') as string) || 0.06;
@@ -70,10 +61,7 @@ export async function POST(req: NextRequest) {
     const meshBytes = Buffer.from(await meshFile.arrayBuffer());
 
     if (!isBlenderMagic(meshBytes)) {
-      return NextResponse.json(
-        { error: 'File does not look like a Blender (.blend) file' },
-        { status: 400 },
-      );
+      throw new PipelineError('UPLOAD_INVALID_FILE', 'File does not look like a Blender (.blend) file');
     }
 
     const runId = `${Date.now()}-${randomUUID()}`;
@@ -83,7 +71,6 @@ export async function POST(req: NextRequest) {
     const meshPath = path.join(uploadDir, meshFile.name);
     await writeFile(meshPath, meshBytes);
 
-    // Run pipeline
     const result = await runVoxelPipeline({
       meshPath,
       voxelSize: Math.max(0.02, Math.min(0.5, voxelSize)),
@@ -98,15 +85,10 @@ export async function POST(req: NextRequest) {
       diagnostics: result.diagnostics,
     });
   } catch (error) {
-    if (error instanceof PipelineError) {
-      return NextResponse.json(
-        { error: error.message, preflight: error.preflight },
-        { status: 400 },
-      );
+    if (!(error instanceof PipelineError)) {
+      console.error('Upload error:', error);
     }
-    const message = error instanceof Error ? error.message : 'Upload processing failed';
-    console.error('Upload error:', error);
-    return NextResponse.json({ error: message }, { status: 500 });
+    return errorResponse(error, 'Upload processing failed');
   } finally {
     if (uploadDir) {
       await rm(uploadDir, { recursive: true, force: true }).catch(() => {});

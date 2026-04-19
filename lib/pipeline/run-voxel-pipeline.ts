@@ -18,6 +18,10 @@ import {
   TMP_VOXELS_DIR,
 } from '@/lib/pipeline/paths';
 import { DEFAULT_VOXEL_SIZE, DEFAULT_SHELL_ENABLED } from '@/lib/pipeline/constants';
+import { PipelineError } from '@/lib/pipeline/errors';
+
+// Re-export for backwards compatibility; new code should import from errors.ts.
+export { PipelineError };
 
 const execFileAsync = promisify(execFile);
 
@@ -108,12 +112,12 @@ export interface MeshBounds {
 export async function getMeshBounds(meshPath: string, objectName?: string): Promise<MeshBounds> {
   const blenderCheck = await validateBlenderBinary();
   if (!blenderCheck.valid) {
-    throw new PipelineError(blenderCheck.error ?? 'Blender not available');
+    throw new PipelineError('BLENDER_UNAVAILABLE', blenderCheck.error ?? 'Blender not available');
   }
 
   const preflight = await preflightMeshPath(meshPath);
   if (!preflight.shouldProceed) {
-    throw new PipelineError(preflight.errors.join(' '), preflight);
+    throw new PipelineError('MESH_PREFLIGHT_FAILED', preflight.errors.join(' '), { preflight });
   }
 
   await mkdir(TMP_VOXELS_DIR, { recursive: true });
@@ -179,13 +183,13 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
   // Step 0: Validate Blender
   const blenderCheck = await validateBlenderBinary();
   if (!blenderCheck.valid) {
-    throw new PipelineError(blenderCheck.error ?? 'Blender not available');
+    throw new PipelineError('BLENDER_UNAVAILABLE', blenderCheck.error ?? 'Blender not available');
   }
 
   // Step 1: Preflight validation
   const preflight = await preflightMeshPath(options.meshPath);
   if (!preflight.shouldProceed) {
-    throw new PipelineError(preflight.errors.join(' '), preflight);
+    throw new PipelineError('MESH_PREFLIGHT_FAILED', preflight.errors.join(' '), { preflight });
   }
 
   // Step 2: Blender GN voxelizer
@@ -226,7 +230,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     const outputExists = await access(outputPath).then(() => true).catch(() => false);
     if (!outputExists) {
       const details = stderr?.trim().slice(0, 1500) || stdout?.trim().slice(0, 1500) || 'Blender completed without producing voxel output.';
-      throw new PipelineError(`Blender voxelizer did not produce output JSON. ${details}`, preflight);
+      throw new PipelineError('VOXELIZATION_FAILED', `Blender voxelizer did not produce output JSON. ${details}`, { preflight });
     }
 
     // Read grid JSON output
@@ -304,11 +308,3 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
   }
 }
 
-// ─── Error ────────────────────────────────────────────────────────────────────
-
-export class PipelineError extends Error {
-  constructor(message: string, public preflight?: MeshPreflightResult) {
-    super(message);
-    this.name = 'PipelineError';
-  }
-}
