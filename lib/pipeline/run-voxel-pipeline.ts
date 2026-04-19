@@ -77,6 +77,7 @@ export interface VoxelPipelineResult {
     voxelLayers: number;
     totalBricks: number;
     shelled: boolean;
+    unsupportedBricks: number;
     warnings: string[];
     refinement?: {
       regionsFound: number;
@@ -86,11 +87,6 @@ export interface VoxelPipelineResult {
       weakBefore: number;
       weakAfter: number;
       elapsedMs: number;
-    };
-    fill?: {
-      cellsFilled: number;
-      columnsBuilt: number;
-      budgetUsed: number;
     };
   };
 }
@@ -266,6 +262,14 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
       warnings.push(...stability.warnings);
     }
 
+    // Count completely unsupported bricks (zero support from below)
+    const unsupportedCount = [...stability.brickSupport.values()]
+      .filter(info => info.supportRatio === 0 && info.tier !== 'stable')
+      .length;
+    if (unsupportedCount > 0) {
+      console.log(`[stability] ${unsupportedCount} brick(s) have zero support from below`);
+    }
+
     const { refinementStats } = model;
 
     return {
@@ -279,6 +283,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         voxelLayers: grid[0]?.[0]?.length ?? 0,
         totalBricks: model.totalBricks,
         shelled: shell,
+        unsupportedBricks: unsupportedCount,
         warnings,
         ...(refinementStats ? {
           refinement: {

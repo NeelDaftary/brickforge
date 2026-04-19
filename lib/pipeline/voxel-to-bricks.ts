@@ -9,15 +9,14 @@
  * Pipeline:
  *   Phase 0: Shell the grid (remove deep interior voxels)
  *   Phase 0.5: Mark interior wildcards (flexible color for combining)
- *   Phase 1: Greedy brick combiner (layer by layer, largest first)
- *   Phase 2: Structural staggering (break aligned seams between layers)
+ *   Phase 1: Grid-partition combiner (Brickr-style with layer offset + below-layer awareness)
+ *   Phase 2: Stability refinement (split-remerge)
  *   Phase 3: Convert to Three.js viewer format
  */
 
 import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
 import { BRICK_CATALOG } from '@/lib/engine/brick_catalog';
-import { refineStability, type RefinementStats } from '@/lib/pipeline/stability-refiner';
-// Gap-fill removed — phantom support columns can't be edited by the user
+import { refineStability, buildOccupiedSet, type RefinementStats } from '@/lib/pipeline/stability-refiner';
 
 // ─── Brick Sizes ──────────────────────────────────────────────────────────────
 // Derived from catalog (brick type only). Sorted by area descending,
@@ -182,7 +181,7 @@ function shell(grid: string[][][], d: Dims): string[][][] {
 function markWildcards(
   grid: string[][][],
   d: Dims,
-): { grid: string[][][]; wildcardColors: Map<string, string> } {
+): { grid: string[][][]; wildcardColors: Map<string, string>; isSurface: boolean[][][] } {
   const out = cloneGrid(grid);
 
   // Step 1: Find all exterior void cells via BFS from grid boundary empty cells
@@ -276,146 +275,242 @@ function markWildcards(
   }
 
   if (count > 0) console.log(`[wildcard] Marked ${count} interior voxels as wildcard`);
-  return { grid: out, wildcardColors };
+  return { grid: out, wildcardColors, isSurface };
 }
 
-// ─── Phase 1: Greedy Brick Combiner ───────────────────────────────────────────
+// ─── Phase 1: Brickr-Style Grid-Partition Combiner ────────────────────────────
+//
+// For each brick size (largest first), try every possible grid-partition offset
+// and pick the one that claims the most cells with the best support from below.
+// A layer-dependent shift (+ z) ensures adjacent layers never partition
+// identically, giving natural interlocking for free.
 
-function fits(
-  grid: string[][][], used: Set<string>,
-  bx: number, by: number, z: number,
-  w: number, d: number,
-  symbol: string, dm: Dims,
-): boolean {
-  for (let dx = 0; dx < w; dx++) {
-    for (let dy = 0; dy < d; dy++) {
-      const nx = bx + dx, ny = by + dy;
-      if (nx >= dm.sx || ny >= dm.sy) return false;
-      if (used.has(`${nx},${ny}`)) return false;
-      const cell = grid[nx][ny][z];
-      if (cell !== symbol && cell !== WILDCARD) return false;
-    }
-  }
-  return true;
-}
-
-function combineLayer(
-  grid: string[][][], z: number,
+/**
+ * Resolve color symbol at (x, y, z) for wildcard handling.
+ */
+function resolveColor(
+  grid: string[][][], x: number, y: number, z: number,
   colorLegend: Record<string, string>,
-  d: Dims,
+  wildcardColors: Map<string, string>,
+): string | null {
+  const sym = grid[x][y][z];
+  if (sym === '0') return null;
+  if (sym === WILDCARD) {
+    const resolved = wildcardColors.get(`${x},${y},${z}`) ?? 'G';
+    return colorLegend[resolved] || '#A0A5A9';
+  }
+  return colorLegend[sym] || '#A0A5A9';
+}
+
+/**
+ * Score a candidate brick set — higher is better.
+ *
+ * Primary: cell coverage (× 10).
+ * Secondary: support-aware bonuses/penalties for z > 0:
+ *   - Brick straddles support boundary: +3 (best interlocking)
+ *   - Brick fully supported: +1
+ *   - Surface voxel that IS supported: +2 per cell
+ *   - Surface voxel with ZERO support: -15 per cell (penalty > 1 cell of coverage)
+ */
+function scoreCandidateSet(
+  candidate: PlacedBrick[],
+  belowOccupied: ReadonlySet<string>,
+  surfaceCells: ReadonlySet<string>,
+  z: number,
+): number {
+  let cellsClaimed = 0;
+  let supportScore = 0;
+
+  for (const b of candidate) {
+    const total = b.w * b.d;
+    cellsClaimed += total;
+
+    if (z === 0) continue; // ground layer — no support scoring
+
+    let supportedCells = 0;
+    let surfaceUnsupported = 0;
+    let surfaceSupported = 0;
+
+    for (let dx = 0; dx < b.w; dx++) {
+      for (let dy = 0; dy < b.d; dy++) {
+        const cx = b.x + dx;
+        const cy = b.y + dy;
+        const hasSupport = belowOccupied.has(`${cx},${cy}`);
+        const isSurf = surfaceCells.has(`${cx},${cy},${z}`);
+
+        if (hasSupport) {
+          supportedCells++;
+          if (isSurf) surfaceSupported++;
+        } else if (isSurf) {
+          surfaceUnsupported++;
+        }
+      }
+    }
+
+    // Straddling bonus: brick overlaps support boundary — creates interlocking
+    if (supportedCells > 0 && supportedCells < total) {
+      supportScore += 3;
+    } else if (supportedCells === total) {
+      supportScore += 1;
+    }
+
+    // Surface support: reward supported surface voxels, penalize unsupported
+    supportScore += surfaceSupported * 2;
+    supportScore -= surfaceUnsupported * 15;
+  }
+
+  return cellsClaimed * 10 + supportScore;
+}
+
+/**
+ * Partition a single layer for a given brick size + offset using the Brickr
+ * formula with layer-dependent shift.
+ *
+ * Groups cells by integer division: gx = floor((x - shiftX) / w).
+ * A group is valid if:
+ *   - Fully filled (w × d cells, none empty, none already claimed)
+ *   - Color-compatible (all non-wildcard cells share the same color)
+ */
+function partitionForSize(
+  grid: string[][][], z: number,
+  w: number, dep: number,
+  offsetX: number, offsetY: number,
+  dm: Dims,
+  claimed: ReadonlySet<string>,
+  colorLegend: Record<string, string>,
   wildcardColors: Map<string, string>,
 ): PlacedBrick[] {
   const bricks: PlacedBrick[] = [];
-  const used = new Set<string>();
 
-  for (let x = 0; x < d.sx; x++) {
-    for (let y = 0; y < d.sy; y++) {
-      if (used.has(`${x},${y}`)) continue;
-      let sym = grid[x][y][z];
-      if (sym === '0') continue;
+  // Layer-dependent shift: partition grid shifts by z cells in both axes
+  const shiftX = (offsetX + z) % w;
+  const shiftY = (offsetY + z) % dep;
 
-      // Resolve wildcard to nearest boundary color
-      if (sym === WILDCARD) {
-        sym = wildcardColors.get(`${x},${y},${z}`) ?? 'G';
-      }
+  // Build groups via integer division
+  // Group key → { cells, syms (raw grid symbols) }
+  const groups = new Map<string, { cells: [number, number][]; syms: string[] }>();
 
-      const hex = colorLegend[sym] || '#A0A5A9';
-      let placed = false;
+  for (let x = 0; x < dm.sx; x++) {
+    for (let y = 0; y < dm.sy; y++) {
+      if (claimed.has(`${x},${y}`)) continue;
+      const cell = grid[x][y][z];
+      if (cell === '0') continue;
 
-      for (const [bw, bd] of BRICK_SIZES) {
-        // Try both orientations for non-square bricks
-        const orientations: [number, number][] = [[bw, bd]];
-        if (bw !== bd) orientations.push([bd, bw]);
+      // Brickr formula: integer division with layer shift
+      // Add large multiple to avoid negative division issues
+      const gx = Math.floor((x + w * 1000 - shiftX) / w);
+      const gy = Math.floor((y + dep * 1000 - shiftY) / dep);
+      const key = `${gx},${gy}`;
 
-        for (const [w, dep] of orientations) {
-          if (fits(grid, used, x, y, z, w, dep, sym, d)) {
-            for (let dx = 0; dx < w; dx++)
-              for (let dy = 0; dy < dep; dy++)
-                used.add(`${x + dx},${y + dy}`);
-            bricks.push({ x, y, z, w, d: dep, color: hex });
-            placed = true;
-            break;
-          }
-        }
-        if (placed) break;
-      }
+      let group = groups.get(key);
+      if (!group) { group = { cells: [], syms: [] }; groups.set(key, group); }
+      group.cells.push([x, y]);
+      group.syms.push(cell);
+    }
+  }
 
-      if (!placed) {
-        used.add(`${x},${y}`);
-        bricks.push({ x, y, z, w: 1, d: 1, color: hex });
+  // Validate each group
+  for (const group of groups.values()) {
+    if (group.cells.length !== w * dep) continue; // not fully filled
+
+    // Color check: all non-wildcard cells must share the same color
+    let dominantSym: string | null = null;
+    let valid = true;
+
+    for (const sym of group.syms) {
+      if (sym === WILDCARD) continue;
+      if (dominantSym === null) {
+        dominantSym = sym;
+      } else if (sym !== dominantSym) {
+        valid = false;
+        break;
       }
     }
+    if (!valid) continue;
+
+    // Resolve color
+    if (dominantSym === null) {
+      // All wildcards — use the first cell's propagated color
+      const [fx, fy] = group.cells[0];
+      dominantSym = wildcardColors.get(`${fx},${fy},${z}`) ?? 'G';
+    }
+    const hex = colorLegend[dominantSym] || '#A0A5A9';
+
+    const minX = Math.min(...group.cells.map(c => c[0]));
+    const minY = Math.min(...group.cells.map(c => c[1]));
+
+    bricks.push({ x: minX, y: minY, z, w, d: dep, color: hex });
   }
 
   return bricks;
 }
 
-// ─── Phase 2: Structural Staggering ───────────────────────────────────────────
-//
-// Detect seams (brick boundaries) that align between adjacent layers and
-// re-split bricks to break the alignment — just like real LEGO building.
+/**
+ * Combine a single layer using Brickr-style grid partitioning with
+ * below-layer awareness.
+ *
+ * For each brick size (largest first), try every offset combination in
+ * both orientations. Score each by coverage + support quality. Best wins.
+ */
+function combineLayer(
+  grid: string[][][], z: number,
+  colorLegend: Record<string, string>,
+  dm: Dims,
+  wildcardColors: Map<string, string>,
+  belowOccupied: ReadonlySet<string>,
+  surfaceCells: ReadonlySet<string>,
+): PlacedBrick[] {
+  const allBricks: PlacedBrick[] = [];
+  const claimed = new Set<string>();
 
-function extractSeams(bricks: PlacedBrick[]): Set<string> {
-  const seams = new Set<string>();
-  for (const b of bricks) {
-    const rx = b.x + b.w;
-    for (let dy = 0; dy < b.d; dy++) seams.add(`x=${rx},y=${b.y + dy}`);
-    const by = b.y + b.d;
-    for (let dx = 0; dx < b.w; dx++) seams.add(`y=${by},x=${b.x + dx}`);
-  }
-  return seams;
-}
+  for (const [bw, bd] of BRICK_SIZES) {
+    if (bw === 1 && bd === 1) continue; // 1x1 handled as fallback
 
-function staggerLayer(bricks: PlacedBrick[], prevSeams: Set<string>): PlacedBrick[] {
-  if (prevSeams.size === 0) return bricks;
+    const orientations: [number, number][] = [[bw, bd]];
+    if (bw !== bd) orientations.push([bd, bw]);
 
-  const result: PlacedBrick[] = [];
+    let bestBricks: PlacedBrick[] = [];
+    let bestScore = -Infinity;
 
-  for (const b of bricks) {
-    // Check X-axis aligned seams
-    if (b.w > 1) {
-      let splitX = -1;
-      for (let sx = b.x + 1; sx < b.x + b.w; sx++) {
-        const leftW = sx - b.x;
-        const rightW = b.x + b.w - sx;
-        // Only split if both pieces are valid LEGO brick sizes
-        if (!isValidBrickSize(leftW, b.d) || !isValidBrickSize(rightW, b.d)) continue;
-        let count = 0;
-        for (let dy = 0; dy < b.d; dy++)
-          if (prevSeams.has(`x=${sx},y=${b.y + dy}`)) count++;
-        if (count > b.d / 2) { splitX = sx; break; }
-      }
-      if (splitX > b.x) {
-        result.push({ ...b, w: splitX - b.x });
-        result.push({ ...b, x: splitX, w: b.x + b.w - splitX });
-        continue;
+    for (const [w, dep] of orientations) {
+      for (let ox = 0; ox < w; ox++) {
+        for (let oy = 0; oy < dep; oy++) {
+          const candidate = partitionForSize(
+            grid, z, w, dep, ox, oy, dm, claimed, colorLegend, wildcardColors,
+          );
+          if (candidate.length === 0) continue;
+
+          const score = scoreCandidateSet(candidate, belowOccupied, surfaceCells, z);
+          if (score > bestScore) {
+            bestScore = score;
+            bestBricks = candidate;
+          }
+        }
       }
     }
 
-    // Check Y-axis aligned seams
-    if (b.d > 1) {
-      let splitY = -1;
-      for (let sy = b.y + 1; sy < b.y + b.d; sy++) {
-        const topD = sy - b.y;
-        const bottomD = b.y + b.d - sy;
-        // Only split if both pieces are valid LEGO brick sizes
-        if (!isValidBrickSize(b.w, topD) || !isValidBrickSize(b.w, bottomD)) continue;
-        let count = 0;
+    if (bestBricks.length > 0) {
+      for (const b of bestBricks) {
         for (let dx = 0; dx < b.w; dx++)
-          if (prevSeams.has(`y=${sy},x=${b.x + dx}`)) count++;
-        if (count > b.w / 2) { splitY = sy; break; }
-      }
-      if (splitY > b.y) {
-        result.push({ ...b, d: splitY - b.y });
-        result.push({ ...b, y: splitY, d: b.y + b.d - splitY });
-        continue;
+          for (let dy = 0; dy < b.d; dy++)
+            claimed.add(`${b.x + dx},${b.y + dy}`);
+        allBricks.push(b);
       }
     }
-
-    result.push(b);
   }
 
-  return result;
+  // Fallback: fill remaining unclaimed cells with 1×1 bricks
+  for (let x = 0; x < dm.sx; x++) {
+    for (let y = 0; y < dm.sy; y++) {
+      if (claimed.has(`${x},${y}`)) continue;
+      const hex = resolveColor(grid, x, y, z, colorLegend, wildcardColors);
+      if (!hex) continue;
+      claimed.add(`${x},${y}`);
+      allBricks.push({ x, y, z, w: 1, d: 1, color: hex });
+    }
+  }
+
+  return allBricks;
 }
 
 // ─── Phase 3: Convert to Viewer Format ────────────────────────────────────────
@@ -448,27 +543,18 @@ function buildLayers(
   colorLegend: Record<string, string>,
   gridDims: Dims,
   wildcardColors: Map<string, string>,
+  surfaceCells: ReadonlySet<string>,
 ): PlacedBrick[][] {
   const layers: PlacedBrick[][] = [];
-  for (let z = 0; z < gridDims.sz; z++) {
-    layers.push(combineLayer(grid, z, colorLegend, gridDims, wildcardColors));
-  }
+  let belowOccupied: ReadonlySet<string> = new Set<string>();
 
-  // Phase 2: Structural staggering (two passes, two-layer lookahead)
-  let splits = 0;
-  for (let pass = 0; pass < 2; pass++) {
-    for (let z = 1; z < gridDims.sz; z++) {
-      if (layers[z].length === 0) continue;
-      const seams = extractSeams(layers[z - 1]);
-      if (z >= 2 && layers[z - 2].length > 0) {
-        for (const s of extractSeams(layers[z - 2])) seams.add(s);
-      }
-      const before = layers[z].length;
-      layers[z] = staggerLayer(layers[z], seams);
-      splits += layers[z].length - before;
-    }
+  for (let z = 0; z < gridDims.sz; z++) {
+    const layerBricks = combineLayer(
+      grid, z, colorLegend, gridDims, wildcardColors, belowOccupied, surfaceCells,
+    );
+    layers.push(layerBricks);
+    belowOccupied = buildOccupiedSet(layerBricks);
   }
-  if (splits > 0) console.log(`[stagger] Split ${splits} bricks to break aligned seams`);
 
   return layers;
 }
@@ -509,16 +595,20 @@ export function voxelGridToBrickModel(
   const shelledGrid = options.shell !== false ? shell(grid, d) : grid;
 
   // Phase 0.5: Mark interior wildcards
-  const { grid: processed, wildcardColors } = markWildcards(shelledGrid, d);
+  const { grid: processed, wildcardColors, isSurface } = markWildcards(shelledGrid, d);
 
+  // Build surface cell set for support-aware scoring
+  const surfaceCells = new Set<string>();
   let filledCount = 0;
   for (let x = 0; x < d.sx; x++)
     for (let y = 0; y < d.sy; y++)
-      for (let z = 0; z < d.sz; z++)
+      for (let z = 0; z < d.sz; z++) {
         if (processed[x][y][z] !== '0') filledCount++;
+        if (isSurface[x][y][z]) surfaceCells.add(`${x},${y},${z}`);
+      }
 
-  // Phase 1+2: Greedy brick combiner + stagger
-  let layers = buildLayers(processed, colorLegend, d, wildcardColors);
+  // Phase 1: Grid-partition combiner (Brickr-style with layer offset + support awareness)
+  let layers = buildLayers(processed, colorLegend, d, wildcardColors, surfaceCells);
 
   // Phase 2.5: Stability refinement (split-remerge)
   let refinementStats: RefinementStats | undefined;
