@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { LegoCanvas } from '@/components/viewer/LegoCanvas';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MeshUpload } from '@/components/MeshUpload';
+import { ImageMosaic } from '@/components/ImageMosaic';
 import { SavedBuilds } from '@/components/SavedBuilds';
 import { saveBuild, loadBuild } from '@/lib/storage/saved-builds';
 import type { BrickModelData } from '@/lib/engine/types';
@@ -349,6 +350,25 @@ export default function HomePage() {
 
             {/* Mesh Upload */}
             <MeshUpload
+              onResult={(data) => {
+                setResult(data as GeneratedModel);
+              }}
+              onError={(msg) => setError(msg)}
+              onStageChange={(s) => setStage(s)}
+              disabled={isWorking}
+            />
+
+            {/* Mosaic divider */}
+            <div className="w-full flex items-center gap-4">
+              <div className="flex-1 h-px bg-[#E0DFD9]" />
+              <span className="text-xs font-semibold uppercase tracking-[1.5px] text-[#BBBBBB]">
+                or create a mosaic
+              </span>
+              <div className="flex-1 h-px bg-[#E0DFD9]" />
+            </div>
+
+            {/* Image Mosaic */}
+            <ImageMosaic
               onResult={(data) => {
                 setResult(data as GeneratedModel);
               }}
