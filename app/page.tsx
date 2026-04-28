@@ -19,6 +19,21 @@ interface GeneratedModel extends BrickModelData {
     voxelLayers?: number;
     totalBricks?: number;
     shelled?: boolean;
+    brickerEngine?: 'legacy' | 'stability_v2';
+    shadowComparison?: {
+      compared?: boolean;
+      primaryBricks?: number;
+      shadowBricks?: number;
+      primaryUnsupportedBricks?: number;
+      shadowUnsupportedBricks?: number;
+    };
+    color?: {
+      sourceType?: string;
+      confidence?: number;
+      achromaticRatio?: number;
+      paletteEntropy?: number;
+      warnings?: string[];
+    };
     warnings?: string[];
   };
 }

@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
+import { voxelGridToBrickModelV2 } from '@/lib/pipeline_v2/stability-bricker';
 import { preflightMeshPath, type MeshPreflightResult } from '@/lib/pipeline/mesh-preflight';
 import { checkBrickStability } from '@/lib/pipeline/brick-stability';
 import type { BrickModelData } from '@/lib/engine/types';
@@ -69,6 +70,8 @@ export interface VoxelPipelineOptions {
   name?: string;
   description?: string;
   shell?: boolean;
+  brickerEngine?: 'legacy' | 'stability_v2';
+  shadowCompare?: boolean;
 }
 
 export interface VoxelPipelineResult {
@@ -84,6 +87,21 @@ export interface VoxelPipelineResult {
     shelled: boolean;
     unsupportedBricks: number;
     warnings: string[];
+    brickerEngine?: 'legacy' | 'stability_v2';
+    shadowComparison?: {
+      compared: boolean;
+      primaryBricks: number;
+      shadowBricks: number;
+      primaryUnsupportedBricks: number;
+      shadowUnsupportedBricks: number;
+    };
+    color?: {
+      sourceType: string;
+      confidence: number;
+      achromaticRatio: number;
+      paletteEntropy: number;
+      warnings: string[];
+    };
     refinement?: {
       regionsFound: number;
       regionsImproved: number;
@@ -179,6 +197,8 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
   const name = options.name ?? 'Generated Build';
   const description = options.description ?? 'LEGO build generated from 3D model';
   const shell = options.shell ?? DEFAULT_SHELL_ENABLED;
+  const brickerEngine = options.brickerEngine ?? 'legacy';
+  const shadowCompare = options.shadowCompare ?? false;
 
   // Step 0: Validate Blender
   const blenderCheck = await validateBlenderBinary();
@@ -259,7 +279,9 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     }
 
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-    const model = voxelGridToBrickModel(voxelGrid, name, description, { shell });
+    const model = brickerEngine === 'stability_v2'
+      ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell })
+      : voxelGridToBrickModel(voxelGrid, name, description, { shell });
 
     // Step 4: Graduated stability check
     const stability = checkBrickStability(model.bricks);
@@ -275,7 +297,38 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
       console.log(`[stability] ${unsupportedCount} brick(s) have zero support from below`);
     }
 
-    const { refinementStats } = model;
+    let shadowSummary: VoxelPipelineResult['diagnostics']['shadowComparison'] | undefined;
+    if (shadowCompare) {
+      const shadowModel = brickerEngine === 'stability_v2'
+        ? voxelGridToBrickModel(voxelGrid, name, description, { shell })
+        : voxelGridToBrickModelV2(voxelGrid, name, description, { shell });
+      const shadowStability = checkBrickStability(shadowModel.bricks);
+      const shadowUnsupported = [...shadowStability.brickSupport.values()]
+        .filter(info => info.supportRatio === 0 && info.tier !== 'stable')
+        .length;
+      shadowSummary = {
+        compared: true,
+        primaryBricks: model.totalBricks,
+        shadowBricks: shadowModel.totalBricks,
+        primaryUnsupportedBricks: unsupportedCount,
+        shadowUnsupportedBricks: shadowUnsupported,
+      };
+      warnings.push(
+        `Shadow compare (${brickerEngine === 'legacy' ? 'stability_v2' : 'legacy'}): ` +
+        `${shadowUnsupported} unsupported vs primary ${unsupportedCount}.`,
+      );
+    }
+
+    const refinementStats = (model as BrickModelData & { refinementStats?: VoxelPipelineResult['diagnostics']['refinement'] }).refinementStats;
+    const colorDiagnostics = voxelJson.color_diagnostics as
+      | {
+        sourceType?: string;
+        confidence?: number;
+        achromaticRatio?: number;
+        paletteEntropy?: number;
+        warnings?: string[];
+      }
+      | undefined;
 
     return {
       model,
@@ -289,6 +342,17 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         totalBricks: model.totalBricks,
         shelled: shell,
         unsupportedBricks: unsupportedCount,
+        brickerEngine,
+        ...(shadowSummary ? { shadowComparison: shadowSummary } : {}),
+        ...(colorDiagnostics ? {
+          color: {
+            sourceType: colorDiagnostics.sourceType ?? 'unknown',
+            confidence: colorDiagnostics.confidence ?? 0,
+            achromaticRatio: colorDiagnostics.achromaticRatio ?? 0,
+            paletteEntropy: colorDiagnostics.paletteEntropy ?? 0,
+            warnings: colorDiagnostics.warnings ?? [],
+          },
+        } : {}),
         warnings,
         ...(refinementStats ? {
           refinement: {
@@ -307,4 +371,3 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     await rm(outputPath, { force: true }).catch(() => {});
   }
 }
-
