@@ -27,6 +27,7 @@ Usage:
 
 import argparse
 import json
+import math
 import os
 import sys
 from collections import deque
@@ -47,6 +48,66 @@ from color_quantization import (
     linear_rgb_to_nearest_lego_hex,
     srgb_tuple_to_nearest_lego_hex,
 )
+
+
+def detect_color_source(obj: bpy.types.Object) -> Tuple[str, float, List[str]]:
+    """Best-effort detection of the material color source scheme.
+
+    Returns: (source_type, confidence, warnings)
+    """
+    warnings: List[str] = []
+    mesh = obj.data
+    mats = [m for m in mesh.materials if m]
+    if not mats:
+        if len(mesh.color_attributes) > 0:
+            return ("vertex_color", 0.7, warnings)
+        warnings.append("No materials found; defaulting to fallback color path.")
+        return ("fallback", 0.2, warnings)
+
+    textured = 0
+    flat = 0
+    unresolved = 0
+    for mat in mats:
+        if not mat.use_nodes or not mat.node_tree:
+            unresolved += 1
+            continue
+        principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+        if principled is None:
+            unresolved += 1
+            continue
+        bc = principled.inputs.get("Base Color")
+        if bc and bc.is_linked:
+            source = bc.links[0].from_node
+            if source.type == 'TEX_IMAGE' and source.image:
+                textured += 1
+            else:
+                linked_image = False
+                for inp in source.inputs:
+                    if inp.is_linked and inp.links[0].from_node.type == 'TEX_IMAGE':
+                        linked_image = True
+                        break
+                if linked_image:
+                    textured += 1
+                else:
+                    unresolved += 1
+        elif bc:
+            flat += 1
+        else:
+            unresolved += 1
+
+    if textured > 0:
+        if unresolved > 0:
+            warnings.append("Some materials could not be traced to base-color textures.")
+        return ("pbr_texture", 0.9 if unresolved == 0 else 0.75, warnings)
+    if flat > 0 and textured == 0:
+        if unresolved > 0:
+            warnings.append("Mixed material graph quality; using flat Principled base colors where available.")
+        return ("flat_principled", 0.8 if unresolved == 0 else 0.65, warnings)
+    if len(mesh.color_attributes) > 0:
+        warnings.append("Material graph unresolved; relying on vertex color attributes.")
+        return ("vertex_color", 0.6, warnings)
+    warnings.append("Could not infer a reliable color source; fallback mapping may be inaccurate.")
+    return ("fallback", 0.2, warnings)
 
 
 # ─── Import non-.blend files ─────────────────────────────────────────────────
@@ -567,6 +628,7 @@ def run_pipeline(
     ref_obj = _make_color_ref(obj)
     ref_mesh = ref_obj.data
     bvh = BVHTree.FromObject(ref_obj, bpy.context.evaluated_depsgraph_get())
+    source_type, source_confidence, source_warnings = detect_color_source(ref_obj)
 
     # Step 2: Get a voxelized mesh
     obj = bpy.data.objects.get(object_name)
@@ -638,11 +700,37 @@ def run_pipeline(
         color_dist[sym] = color_dist.get(sym, 0) + 1
     print(f"[LOG] Color distribution: {color_dist}")
 
+    total_voxels = max(len(colors), 1)
+    achromatic_symbols = {"G", "D", "K", "W", "T"}
+    achromatic_count = sum(count for sym, count in color_dist.items() if sym in achromatic_symbols)
+    achromatic_ratio = achromatic_count / total_voxels
+    entropy = 0.0
+    for count in color_dist.values():
+        p = count / total_voxels
+        if p > 0:
+            entropy -= p * math.log2(p)
+
+    color_warnings = list(source_warnings)
+    if achromatic_ratio > 0.95:
+        color_warnings.append(
+            "Output is mostly achromatic; check Base Color texture wiring and image color-space tags."
+        )
+
     # Step 5: Build grid
     grid, color_legend = build_grid(centers, colors, voxel_size)
 
     # Step 6: Write output JSON
-    output = {"color_legend": color_legend, "grid": grid}
+    output = {
+        "color_legend": color_legend,
+        "grid": grid,
+        "color_diagnostics": {
+            "sourceType": source_type,
+            "confidence": round(source_confidence, 4),
+            "achromaticRatio": round(achromatic_ratio, 4),
+            "paletteEntropy": round(entropy, 4),
+            "warnings": color_warnings,
+        },
+    }
     os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
     with open(output_path, "w") as f:
         json.dump(output, f)

@@ -15,6 +15,8 @@ const VoxelRequestSchema = z.object({
   name: z.string().default('Generated Build'),
   description: z.string().default('LEGO build generated from 3D model'),
   shell: z.boolean().default(true),
+  brickerEngine: z.enum(['legacy', 'stability_v2']).default('legacy'),
+  shadowCompare: z.boolean().default(false),
 });
 
 function deriveGridSize(grid: string[][][]): number {
@@ -33,6 +35,7 @@ function buildDiagnostics(
   grid: string[][][],
   totalBricks: number,
   shell: boolean,
+  brickerEngine: 'legacy' | 'stability_v2',
 ) {
   return {
     pipeline: 'brickforge-v3',
@@ -42,6 +45,7 @@ function buildDiagnostics(
     voxelLayers: grid[0]?.[0]?.length ?? 0,
     totalBricks,
     shelled: shell,
+    brickerEngine,
   };
 }
 
@@ -59,7 +63,9 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
-    const { meshPath, voxelData, voxelSize, objectName, name, description, shell } = VoxelRequestSchema.parse(body);
+    const {
+      meshPath, voxelData, voxelSize, objectName, name, description, shell, brickerEngine, shadowCompare,
+    } = VoxelRequestSchema.parse(body);
 
     if (voxelData) {
       const { grid, color_legend: colorLegend } = voxelData;
@@ -71,12 +77,21 @@ export async function POST(req: NextRequest) {
 
       return NextResponse.json({
         ...model,
-        diagnostics: buildDiagnostics(startedAt, voxelSize, gridSize, grid, model.totalBricks, shell),
+        diagnostics: buildDiagnostics(startedAt, voxelSize, gridSize, grid, model.totalBricks, shell, brickerEngine),
       });
     }
 
     if (meshPath) {
-      const result = await runVoxelPipeline({ meshPath, voxelSize, objectName, name, description, shell });
+      const result = await runVoxelPipeline({
+        meshPath,
+        voxelSize,
+        objectName,
+        name,
+        description,
+        shell,
+        brickerEngine,
+        shadowCompare,
+      });
       return NextResponse.json({ ...result.model, diagnostics: result.diagnostics });
     }
 
