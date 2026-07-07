@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { LegoCanvas } from '@/components/viewer/LegoCanvas';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MeshUpload } from '@/components/MeshUpload';
@@ -10,6 +10,7 @@ import { saveBuild, loadBuild } from '@/lib/storage/saved-builds';
 import type { BrickModelData } from '@/lib/engine/types';
 import type { PipelineStage } from '@/lib/pipeline/types';
 import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
+import { buildGuidedRepairSuggestions, type GuidedRepairSuggestion } from '@/lib/pipeline_v2/guided-repair';
 
 interface GeneratedModel extends BrickModelData {
   diagnostics?: {
@@ -178,6 +179,99 @@ function BuildHealth({ diagnostics }: { diagnostics: GeneratedModel['diagnostics
           Legacy compare: {diagnostics.shadowComparison.shadowUnsupportedBricks ?? 0} unsupported vs {diagnostics.shadowComparison.primaryUnsupportedBricks ?? 0} in this build
         </div>
       )}
+    </div>
+  );
+}
+
+function RepairMetricDelta({
+  label,
+  before,
+  after,
+}: {
+  label: string;
+  before: number;
+  after: number;
+}) {
+  const improved = after < before;
+  const worsened = after > before;
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] uppercase tracking-[0.5px] text-[#888888] truncate">{label}</div>
+      <div className={`text-sm font-bold ${improved ? 'text-[#2E7D32]' : worsened ? 'text-[#B71C1C]' : 'text-[#444444]'}`}>
+        {before} &rarr; {after}
+      </div>
+    </div>
+  );
+}
+
+function RepairSuggestionCard({
+  suggestion,
+  onApply,
+}: {
+  suggestion: GuidedRepairSuggestion;
+  onApply: (model: GeneratedModel) => void;
+}) {
+  return (
+    <div className="border border-[#E4E2DA] rounded-lg px-3 py-3 bg-white">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-bold text-[#1A1A1A]">{suggestion.title}</div>
+          <div className="mt-1 text-xs leading-snug text-[#666666]">{suggestion.description}</div>
+          <div className="mt-1 text-[11px] leading-snug text-[#8A5A00]">{suggestion.tradeoff}</div>
+        </div>
+        <button
+          onClick={() => onApply(suggestion.afterModel as GeneratedModel)}
+          className="shrink-0 px-3 py-2 text-xs font-bold text-white bg-brick-red rounded-lg hover:brightness-110 active:scale-[0.98]"
+        >
+          Apply
+        </button>
+      </div>
+      <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-2">
+        <RepairMetricDelta label="Floating" before={suggestion.before.floatingBricks} after={suggestion.after.floatingBricks} />
+        <RepairMetricDelta label="Unsupported" before={suggestion.before.unsupportedBricks} after={suggestion.after.unsupportedBricks} />
+        <RepairMetricDelta label="Weak" before={suggestion.before.weakCantilevers} after={suggestion.after.weakCantilevers} />
+        <RepairMetricDelta label="Health" before={suggestion.before.healthScore} after={suggestion.after.healthScore} />
+        <div className="min-w-0">
+          <div className="text-[10px] uppercase tracking-[0.5px] text-[#888888] truncate">Added bricks</div>
+          <div className="text-sm font-bold text-[#444444]">+{suggestion.addedBricks}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RepairSuggestions({
+  model,
+  onApply,
+}: {
+  model: GeneratedModel;
+  onApply: (model: GeneratedModel) => void;
+}) {
+  const suggestions = useMemo(() => buildGuidedRepairSuggestions(model), [model]);
+  if (suggestions.length === 0) return null;
+
+  return (
+    <div className="w-full border border-[#E0DFD9] rounded-lg px-4 py-3 bg-[#FAFAF7]">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-[1px] text-[#555555]">Repair Suggestions</div>
+          <div className="text-[12px] text-[#777777] mt-0.5">
+            Preview the tradeoff, then choose what to apply.
+          </div>
+        </div>
+        <span className="text-[11px] font-semibold text-[#8A5A00] bg-[#FFF8E1] border border-[#FFE082] rounded-full px-2 py-1">
+          User-approved
+        </span>
+      </div>
+      <div className="grid gap-2">
+        {suggestions.map((suggestion) => (
+          <RepairSuggestionCard
+            key={suggestion.id}
+            suggestion={suggestion}
+            onApply={onApply}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -623,6 +717,13 @@ export default function HomePage() {
               </div>
             ))}
             <BuildHealth diagnostics={result.diagnostics} />
+            <RepairSuggestions
+              model={result}
+              onApply={(newModel) => {
+                setResult(newModel);
+                setSaveMessage('Repair applied. Review the build before saving.');
+              }}
+            />
             <LegoCanvas
               model={result}
               diagnosticBrickIds={result.diagnostics?.layoutIds}
