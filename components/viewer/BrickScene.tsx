@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import type { BrickInstance, BrickModelData } from '@/lib/engine/types';
+import { isDangerousDiagnosticOverlay, type DiagnosticOverlayMode } from '@/lib/pipeline/diagnostic-categories';
 import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
 import type { EditTool } from './EditToolbar';
 import { BrickMesh } from './BrickMesh';
@@ -44,7 +45,7 @@ interface BrickSceneProps {
   unstableCells?: Set<string>;
   marginalCells?: Set<string>;
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
-  diagnosticOverlayMode?: 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'supportedCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
+  diagnosticOverlayMode?: DiagnosticOverlayMode;
   focusedBrickIds?: string[];
 }
 
@@ -80,11 +81,7 @@ export function BrickScene({
   }, [diagnosticBrickIds, diagnosticOverlayMode, focusedBrickIds]);
   const diagnosticFocusActive = selectedDiagnosticIds.size > 0;
   const repairFocusActive = (focusedBrickIds?.length ?? 0) > 0;
-  const dangerousDiagnosticOverlay = diagnosticOverlayMode === 'floating' ||
-    diagnosticOverlayMode === 'unsupported' ||
-    diagnosticOverlayMode === 'weakCantilever' ||
-    diagnosticOverlayMode === 'oracle' ||
-    repairFocusActive;
+  const dangerousDiagnosticOverlay = isDangerousDiagnosticOverlay(diagnosticOverlayMode) || repairFocusActive;
 
   return (
     <>

@@ -8,6 +8,13 @@ import { COLOR_PALETTE } from '@/lib/engine/color-palette';
 import { floodFill } from '@/lib/engine/flood-fill';
 import { expandGridIfNeeded } from '@/lib/engine/grid-utils';
 import { checkGridStability } from '@/lib/pipeline/brick-stability';
+import {
+  DIAGNOSTIC_OVERLAY_MODES,
+  activeDiagnosticOverlay,
+  diagnosticCount,
+  diagnosticShortLabel,
+  type DiagnosticOverlayMode,
+} from '@/lib/pipeline/diagnostic-categories';
 import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
 import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
 import { BrickScene, type ViewMode } from './BrickScene';
@@ -27,18 +34,6 @@ type ModelDiagnostics = {
   brickerEngine?: BrickerVariant;
   voxelSize?: number;
 };
-
-type DiagnosticOverlayMode =
-  | 'auto'
-  | 'floating'
-  | 'unsupported'
-  | 'weakCantilever'
-  | 'supportedCantilever'
-  | 'articulation'
-  | 'bridge'
-  | 'internalSupport'
-  | 'oracle'
-  | 'off';
 
 function getMaxStep(model: BrickModelData): number {
   return model.bricks.reduce((max, b) => Math.max(max, b.step), 1);
@@ -108,26 +103,6 @@ function computeModelExtent(model: BrickModelData): number {
     maxExtent = Math.max(maxExtent, ex * 2, ez * 2);
   }
   return maxExtent;
-}
-
-function activeDiagnosticOverlay(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnosticBrickIds>): DiagnosticOverlayMode {
-  if (mode !== 'auto') return mode;
-  const order: DiagnosticOverlayMode[] = [
-    'floating',
-    'unsupported',
-    'weakCantilever',
-    'oracle',
-    'articulation',
-    'bridge',
-    'supportedCantilever',
-    'internalSupport',
-  ];
-  return order.find((candidate) => (ids?.[candidate as keyof GraphDiagnosticBrickIds]?.length ?? 0) > 0) ?? 'off';
-}
-
-function diagnosticCount(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnosticBrickIds>): number {
-  if (mode === 'auto' || mode === 'off') return 0;
-  return ids?.[mode as keyof GraphDiagnosticBrickIds]?.length ?? 0;
 }
 
 export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModelUpdate }: LegoCanvasProps) {
@@ -530,18 +505,8 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
               <span className="px-1.5 text-[10px] font-bold uppercase tracking-[0.8px] text-[#777777]">
                 Issues
               </span>
-              {([
-                ['off', 'Off'],
-                ['auto', 'Auto'],
-                ['floating', 'Floating'],
-                ['unsupported', 'Unsupported'],
-                ['weakCantilever', 'Weak'],
-                ['supportedCantilever', 'Cantilever'],
-                ['articulation', 'Joint'],
-                ['bridge', 'Bridge'],
-                ['internalSupport', 'Int support'],
-                ['oracle', 'Oracle'],
-              ] as Array<[DiagnosticOverlayMode, string]>).map(([mode, label]) => {
+              {DIAGNOSTIC_OVERLAY_MODES.map((mode) => {
+                const label = diagnosticShortLabel(mode);
                 const isActive = diagnosticOverlayMode === mode || (diagnosticOverlayMode === 'auto' && activeOverlayMode === mode);
                 return (
                   <button

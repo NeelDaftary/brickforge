@@ -3,6 +3,7 @@ import {
   prototypeUnsupportedLimit,
   prototypeWeakLimit,
 } from '@/lib/pipeline/build-readiness';
+import { buildHealthMetrics } from '@/lib/pipeline/diagnostic-categories';
 import type { ModelDiagnostics } from '@/lib/pipeline/model-diagnostics';
 
 export function BuildHealth({ diagnostics }: { diagnostics?: ModelDiagnostics }) {
@@ -34,15 +35,7 @@ export function BuildHealth({ diagnostics }: { diagnostics?: ModelDiagnostics })
         ? 'Floating bricks remain. Add internal/external support, increase scale, thicken geometry, or reorient before building.'
         : `Unsupported or weak spots exceed the prototype limits (${unsupported}/${unsupportedLimit} unsupported, ${weak}/${weakLimit} weak).`;
 
-  const metrics = [
-    ['Unsupported', unsupported],
-    ['Floating', floating],
-    ['Weak cantilevers', weak],
-    ['Supported cantilevers', layout.supportedCantilevers ?? 0],
-    ['Articulations', layout.articulationBricks ?? 0],
-    ['Repeated seams', layout.seamAlignment?.repeatedAdjacentLayerSeams ?? 0],
-    ['Internal supports', layout.internalSupportVoxels ?? 0],
-  ];
+  const metrics = buildHealthMetrics(layout);
 
   return (
     <div className={`w-full border rounded-lg px-4 py-3 ${statusClass}`}>
@@ -54,7 +47,7 @@ export function BuildHealth({ diagnostics }: { diagnostics?: ModelDiagnostics })
         {guidance}
       </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-        {metrics.map(([label, value]) => (
+        {metrics.map(({ label, value }) => (
           <div key={label} className="min-w-0">
             <div className="text-[10px] uppercase tracking-[0.5px] opacity-75 truncate">{label}</div>
             <div className="text-sm font-bold">{value}</div>
