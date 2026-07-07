@@ -9,6 +9,7 @@ import { floodFill } from '@/lib/engine/flood-fill';
 import { expandGridIfNeeded } from '@/lib/engine/grid-utils';
 import { checkGridStability } from '@/lib/pipeline/brick-stability';
 import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
+import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
 import { BrickScene, type ViewMode } from './BrickScene';
 import { BuildStepsPanel } from './BuildStepsPanel';
 import { EditToolbar, type EditTool } from './EditToolbar';
@@ -20,6 +21,11 @@ interface LegoCanvasProps {
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
   onModelUpdate?: (model: BrickModelData) => void;
 }
+
+type ModelDiagnostics = {
+  brickerEngine?: BrickerVariant;
+  voxelSize?: number;
+};
 
 type DiagnosticOverlayMode =
   | 'auto'
@@ -288,6 +294,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
     try {
       // Compute gridSize from actual editedGrid dimensions
       const gridSize = Math.max(editedGrid.length, editedGrid[0]?.length ?? 0, editedGrid[0]?.[0]?.length ?? 0);
+      const diagnostics = (model as BrickModelData & { diagnostics?: ModelDiagnostics }).diagnostics;
 
       const res = await fetch('/api/voxelize', {
         method: 'POST',
@@ -298,9 +305,11 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
             color_legend: fullLegend,
           },
           gridSize,
+          voxelSize: diagnostics?.voxelSize ?? 0.06,
           name: model.name,
           description: model.description,
           shell: true,
+          brickerEngine: diagnostics?.brickerEngine ?? 'stability_v2',
         }),
       });
 

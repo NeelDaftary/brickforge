@@ -1,4 +1,4 @@
-import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
+import type { BrickInstance, BrickModelData, Vector3, VoxelData } from '@/lib/engine/types';
 import {
   analyzeBrickGraph,
   buildBrickGraph,
@@ -10,6 +10,7 @@ import {
 } from './brick-graph';
 
 type GuidedRepairMode = 'minimal_support' | 'balanced_support' | 'full_support';
+type GuidedRepairApplication = 'rebrick' | 'direct';
 
 export interface GuidedRepairDiagnostics {
   layout: GraphDiagnosticsSummary;
@@ -23,12 +24,21 @@ export interface GuidedRepairSuggestion {
   tradeoff: string;
   targetBrickIds: string[];
   addedBricks: number;
+  addedVoxels: number;
+  application: GuidedRepairApplication;
+  intent: {
+    type: 'add_support_cells';
+    supportCells: SupportCell[];
+    supportColor: string;
+    supportSymbol: string;
+  };
+  editedVoxelData?: VoxelData;
   before: GraphDiagnosticsSummary;
   after: GraphDiagnosticsSummary;
   afterModel: BrickModelData & { diagnostics?: unknown };
 }
 
-interface SupportCell {
+export interface SupportCell {
   x: number;
   y: number;
   z: number;
@@ -160,7 +170,7 @@ function allUnsupportedFootprintColumns(brick: GraphBrick, occupied: Set<string>
   return [...additionsByKey.values()];
 }
 
-function addCellsToVoxelData(model: BrickModelData, cells: SupportCell[]): BrickModelData['voxelData'] | undefined {
+function addCellsToVoxelData(model: BrickModelData, cells: SupportCell[]): VoxelData | undefined {
   if (!model.voxelData) return undefined;
   const grid = model.voxelData.grid.map((plane) => plane.map((column) => [...column]));
   const colorLegend = { ...model.voxelData.colorLegend, [SUPPORT_SYMBOL]: SUPPORT_COLOR };
@@ -222,14 +232,16 @@ function buildSuggestion(
   if (addedCells.length === 0) return null;
 
   const supportBricks = addedCells.map((cell, index) => supportBrick(model, cell, index));
+  const editedVoxelData = addCellsToVoxelData(model, addedCells);
   const repairedModel: BrickModelData & { diagnostics?: unknown } = {
     ...model,
     totalBricks: model.bricks.length + supportBricks.length,
     bricks: [...model.bricks, ...supportBricks],
-    voxelData: addCellsToVoxelData(model, addedCells) ?? model.voxelData,
+    voxelData: editedVoxelData ?? model.voxelData,
   };
   const afterModel = withRecomputedDiagnostics(repairedModel);
   const after = (afterModel.diagnostics as { layout?: GraphDiagnosticsSummary } | undefined)?.layout ?? summary;
+  const application: GuidedRepairApplication = editedVoxelData ? 'rebrick' : 'direct';
 
   return {
     id: mode,
@@ -250,6 +262,15 @@ function buildSuggestion(
         : 'Lowest visual change, but weak cantilevers may remain.',
     targetBrickIds,
     addedBricks: supportBricks.length,
+    addedVoxels: addedCells.length,
+    application,
+    intent: {
+      type: 'add_support_cells',
+      supportCells: addedCells,
+      supportColor: SUPPORT_COLOR,
+      supportSymbol: SUPPORT_SYMBOL,
+    },
+    ...(editedVoxelData ? { editedVoxelData } : {}),
     before: summary,
     after,
     afterModel,

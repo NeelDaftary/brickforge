@@ -30,10 +30,52 @@ describe('guided repair suggestions', () => {
     const minimal = suggestions.find((suggestion) => suggestion.id === 'minimal_support');
 
     expect(minimal).toBeDefined();
+    expect(minimal?.application).toBe('direct');
+    expect(minimal?.editedVoxelData).toBeUndefined();
     expect(minimal?.addedBricks).toBe(1);
     expect(minimal?.before.unsupportedBricks).toBe(1);
     expect(minimal?.after.unsupportedBricks).toBe(0);
     expect(minimal?.after.floatingBricks).toBe(0);
+  });
+
+  it('turns voxel-backed repairs into source-grid intents for rebricking', () => {
+    const model: BrickModelData = {
+      name: 'unsupported source',
+      description: '',
+      totalBricks: 1,
+      bricks: [brick('unsupported', 0, 0, 1)],
+      voxelData: {
+        grid: [[['0', 'R']]],
+        colorLegend: { R: '#DB0000' },
+        gridSize: 2,
+      },
+    };
+
+    const minimal = buildGuidedRepairSuggestions(model).find((suggestion) => suggestion.id === 'minimal_support');
+
+    expect(minimal).toBeDefined();
+    expect(minimal?.application).toBe('rebrick');
+    expect(minimal?.addedVoxels).toBe(1);
+    expect(minimal?.intent.supportCells).toEqual([{ x: 0, y: 0, z: 0 }]);
+    expect(minimal?.editedVoxelData?.grid[0][0][0]).toBe('E');
+    expect(minimal?.editedVoxelData?.grid[0][0][1]).toBe('R');
+    expect(minimal?.editedVoxelData?.colorLegend.E).toBe('#A0A5A9');
+  });
+
+  it('does not propose structural edits for already grounded bricks', () => {
+    const model: BrickModelData = {
+      name: 'stable',
+      description: '',
+      totalBricks: 1,
+      bricks: [brick('ground', 0, 0, 0)],
+      voxelData: {
+        grid: [[['R']]],
+        colorLegend: { R: '#DB0000' },
+        gridSize: 1,
+      },
+    };
+
+    expect(buildGuidedRepairSuggestions(model)).toEqual([]);
   });
 
   it('can fully support weak cantilevers when the user accepts the larger repair', () => {
