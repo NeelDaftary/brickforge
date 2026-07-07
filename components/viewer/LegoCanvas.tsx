@@ -21,7 +21,17 @@ interface LegoCanvasProps {
   onModelUpdate?: (model: BrickModelData) => void;
 }
 
-type DiagnosticOverlayMode = 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
+type DiagnosticOverlayMode =
+  | 'auto'
+  | 'floating'
+  | 'unsupported'
+  | 'weakCantilever'
+  | 'supportedCantilever'
+  | 'articulation'
+  | 'bridge'
+  | 'internalSupport'
+  | 'oracle'
+  | 'off';
 
 function getMaxStep(model: BrickModelData): number {
   return model.bricks.reduce((max, b) => Math.max(max, b.step), 1);
@@ -95,8 +105,22 @@ function computeModelExtent(model: BrickModelData): number {
 
 function activeDiagnosticOverlay(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnosticBrickIds>): DiagnosticOverlayMode {
   if (mode !== 'auto') return mode;
-  const order: DiagnosticOverlayMode[] = ['floating', 'unsupported', 'weakCantilever', 'oracle', 'articulation', 'bridge', 'internalSupport'];
+  const order: DiagnosticOverlayMode[] = [
+    'floating',
+    'unsupported',
+    'weakCantilever',
+    'oracle',
+    'articulation',
+    'bridge',
+    'supportedCantilever',
+    'internalSupport',
+  ];
   return order.find((candidate) => (ids?.[candidate as keyof GraphDiagnosticBrickIds]?.length ?? 0) > 0) ?? 'off';
+}
+
+function diagnosticCount(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnosticBrickIds>): number {
+  if (mode === 'auto' || mode === 'off') return 0;
+  return ids?.[mode as keyof GraphDiagnosticBrickIds]?.length ?? 0;
 }
 
 export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCanvasProps) {
@@ -492,15 +516,19 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
           </div>
 
           {!editMode && diagnosticBrickIds && (
-            <div className="absolute top-3 right-3 flex gap-1 bg-white/90 backdrop-blur px-1 py-1 rounded-xl border border-black/10 shadow-toggle max-w-[48%] overflow-x-auto">
+            <div className="absolute bottom-3 left-3 right-3 flex flex-wrap items-center gap-1 bg-white/92 backdrop-blur px-2 py-2 rounded-xl border border-black/10 shadow-toggle">
+              <span className="px-1.5 text-[10px] font-bold uppercase tracking-[0.8px] text-[#777777]">
+                Issues
+              </span>
               {([
                 ['auto', 'Auto'],
-                ['floating', 'Float'],
-                ['unsupported', 'No support'],
+                ['floating', 'Floating'],
+                ['unsupported', 'Unsupported'],
                 ['weakCantilever', 'Weak'],
+                ['supportedCantilever', 'Cantilever'],
                 ['articulation', 'Joint'],
                 ['bridge', 'Bridge'],
-                ['internalSupport', 'Support'],
+                ['internalSupport', 'Int support'],
                 ['oracle', 'Oracle'],
                 ['off', 'Off'],
               ] as Array<[DiagnosticOverlayMode, string]>).map(([mode, label]) => {
@@ -513,7 +541,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
                       isActive ? 'bg-brick-red text-white shadow-toggle-active' : 'text-[#888888] hover:bg-black/5'
                     }`}
                   >
-                    {label}
+                    {mode === 'auto' || mode === 'off' ? label : `${label} ${diagnosticCount(mode, diagnosticBrickIds)}`}
                   </button>
                 );
               })}

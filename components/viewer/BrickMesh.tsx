@@ -10,6 +10,7 @@ const UNIT = 1;
 const PLATE_HEIGHT = 0.4;
 const STUD_RADIUS = 0.3;
 const STUD_HEIGHT = 0.2;
+const DIAGNOSTIC_OVERLAY_PAD = 0.18;
 
 export interface BrickMeshProps {
   brick: BrickInstance;
@@ -31,7 +32,7 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
   useFrame(({ clock }) => {
     if (!unstable || !unstableRef.current) return;
     const t = clock.getElapsedTime();
-    unstableRef.current.opacity = 0.15 + 0.2 * (0.5 + 0.5 * Math.sin(t * 4));
+    unstableRef.current.opacity = 0.32 + 0.22 * (0.5 + 0.5 * Math.sin(t * 4));
   });
   const def = getBrickDef(brick.brickId);
   const dims = useMemo(() => {
@@ -112,23 +113,50 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
         )}
 
       {highlighted && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial color="#FFD500" transparent opacity={0.22} side={THREE.BackSide} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={8}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial color="#FFD500" transparent opacity={0.28} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       )}
 
       {unstable && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial ref={unstableRef} color="#FF4444" transparent opacity={0.25} side={THREE.BackSide} depthWrite={false} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={10}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial
+            ref={unstableRef}
+            color="#FF2D2D"
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthTest={false}
+            depthWrite={false}
+          />
         </mesh>
       )}
 
       {marginal && !unstable && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial color="#FFA500" transparent opacity={0.25} side={THREE.BackSide} depthWrite={false} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={9}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial
+            color="#FF9F1C"
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthTest={false}
+            depthWrite={false}
+          />
         </mesh>
       )}
     </group>

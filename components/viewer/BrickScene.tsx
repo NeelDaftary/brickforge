@@ -45,7 +45,7 @@ interface BrickSceneProps {
   unstableCells?: Set<string>;
   marginalCells?: Set<string>;
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
-  diagnosticOverlayMode?: 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
+  diagnosticOverlayMode?: 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'supportedCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
 }
 
 export function BrickScene({
