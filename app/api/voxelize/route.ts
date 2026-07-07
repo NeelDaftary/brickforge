@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
+import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
+import { analyzeBrickGraph, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 
@@ -36,6 +38,8 @@ function buildDiagnostics(
   totalBricks: number,
   shell: boolean,
   brickerEngine: 'legacy' | 'stability_v2',
+  bricks: ReturnType<typeof voxelGridToBrickModel>['bricks'],
+  stabilityV2?: StabilityV2Stats,
 ) {
   return {
     pipeline: 'brickforge-v3',
@@ -46,6 +50,11 @@ function buildDiagnostics(
     totalBricks,
     shelled: shell,
     brickerEngine,
+    layout: summarizeGraphDiagnostics(analyzeBrickGraph(bricks), {
+      internalSupportBricks: stabilityV2?.internalSupport?.internalSupportBricks ?? 0,
+      internalSupportVoxels: stabilityV2?.internalSupport?.internalSupportVoxels ?? 0,
+    }),
+    ...(stabilityV2 ? { stabilityV2 } : {}),
   };
 }
 
@@ -73,11 +82,23 @@ export async function POST(req: NextRequest) {
       logGrid(grid, colorLegend);
 
       const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-      const model = voxelGridToBrickModel(voxelGrid, name, description, { shell });
+      const model = brickerEngine === 'stability_v2'
+        ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell })
+        : voxelGridToBrickModel(voxelGrid, name, description, { shell });
 
       return NextResponse.json({
         ...model,
-        diagnostics: buildDiagnostics(startedAt, voxelSize, gridSize, grid, model.totalBricks, shell, brickerEngine),
+        diagnostics: buildDiagnostics(
+          startedAt,
+          voxelSize,
+          gridSize,
+          grid,
+          model.totalBricks,
+          shell,
+          brickerEngine,
+          model.bricks,
+          (model as typeof model & { stabilityV2Stats?: StabilityV2Stats }).stabilityV2Stats,
+        ),
       });
     }
 

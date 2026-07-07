@@ -13,26 +13,32 @@ vi.mock('@/lib/pipeline/voxel-to-bricks', async () => {
     voxelGridToBrickModel: vi.fn(),
   };
 });
+vi.mock('@/lib/pipeline_v2/stability-bricker', () => ({
+  voxelGridToBrickModelV2: vi.fn(),
+}));
 
 import { POST } from './route';
 import { PipelineError } from '@/lib/pipeline/errors';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { voxelGridToBrickModel } from '@/lib/pipeline/voxel-to-bricks';
+import { voxelGridToBrickModelV2 } from '@/lib/pipeline_v2/stability-bricker';
 
 const runVoxelPipelineMock = vi.mocked(runVoxelPipeline);
 const voxelGridToBrickModelMock = vi.mocked(voxelGridToBrickModel);
+const voxelGridToBrickModelV2Mock = vi.mocked(voxelGridToBrickModelV2);
 
-function makeReq(body: unknown): Request {
+function makeReq(body: unknown): Parameters<typeof POST>[0] {
   return new Request('http://localhost/api/voxelize', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
-  });
+  }) as Parameters<typeof POST>[0];
 }
 
 beforeEach(() => {
   runVoxelPipelineMock.mockReset();
   voxelGridToBrickModelMock.mockReset();
+  voxelGridToBrickModelV2Mock.mockReset();
 });
 
 afterEach(() => {
@@ -41,8 +47,7 @@ afterEach(() => {
 
 describe('POST /api/voxelize', () => {
   it('returns 400 INVALID_INPUT when neither meshPath nor voxelData is provided', async () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await POST(makeReq({}) as any);
+    const res = await POST(makeReq({}));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe('INVALID_INPUT');
@@ -51,8 +56,7 @@ describe('POST /api/voxelize', () => {
 
   it('returns 400 with Zod issue details for invalid body shape', async () => {
     // voxelSize out of range
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await POST(makeReq({ meshPath: '/tmp/x.blend', voxelSize: 5 }) as any);
+    const res = await POST(makeReq({ meshPath: '/tmp/x.blend', voxelSize: 5 }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe('INVALID_INPUT');
@@ -64,8 +68,7 @@ describe('POST /api/voxelize', () => {
       new PipelineError('BLENDER_UNAVAILABLE', 'Blender not found on PATH'),
     );
     const res = await POST(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      makeReq({ meshPath: '/tmp/x.blend' }) as any,
+      makeReq({ meshPath: '/tmp/x.blend' }),
     );
     expect(res.status).toBe(503);
     const body = await res.json();
@@ -75,8 +78,7 @@ describe('POST /api/voxelize', () => {
 
   it('returns 500 INTERNAL_ERROR for non-PipelineError thrown from the pipeline', async () => {
     runVoxelPipelineMock.mockRejectedValueOnce(new Error('unexpected crash'));
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const res = await POST(makeReq({ meshPath: '/tmp/x.blend' }) as any);
+    const res = await POST(makeReq({ meshPath: '/tmp/x.blend' }));
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.code).toBe('INTERNAL_ERROR');
@@ -91,13 +93,12 @@ describe('POST /api/voxelize', () => {
       bricks: [],
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await POST(makeReq({
       voxelData: {
         grid: [[['R']], [['R']], [['R']]],
         color_legend: { R: '#DB0000' },
       },
-    }) as any);
+    }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.totalBricks).toBe(3);
@@ -105,6 +106,29 @@ describe('POST /api/voxelize', () => {
     expect(body.diagnostics.pipeline).toBe('brickforge-v3');
     expect(body.diagnostics.gridSize).toBe(3);
     expect(voxelGridToBrickModelMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the v2 bricker for voxelData when requested', async () => {
+    voxelGridToBrickModelV2Mock.mockReturnValue({
+      name: 'Generated Build',
+      description: 'LEGO build generated from 3D model',
+      totalBricks: 2,
+      bricks: [],
+    });
+
+    const res = await POST(makeReq({
+      brickerEngine: 'stability_v2',
+      voxelData: {
+        grid: [[['R']], [['R']]],
+        color_legend: { R: '#DB0000' },
+      },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.totalBricks).toBe(2);
+    expect(body.diagnostics.brickerEngine).toBe('stability_v2');
+    expect(voxelGridToBrickModelMock).not.toHaveBeenCalled();
+    expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledTimes(1);
   });
 
   it('passes meshPath through runVoxelPipeline', async () => {
@@ -133,16 +157,31 @@ describe('POST /api/voxelize', () => {
         totalBricks: 42,
         shelled: false,
         unsupportedBricks: 0,
+        layout: {
+          connectedComponents: 0,
+          largestComponentBricks: 0,
+          floatingBricks: 0,
+          unsupportedBricks: 0,
+          supportedCantilevers: 0,
+          weakCantilevers: 0,
+          articulationBricks: 0,
+          bridgeEdges: 0,
+          maxLoadAboveStuds: 0,
+          internalSupportBricks: 0,
+          internalSupportVoxels: 0,
+          healthScore: 0,
+          gateStatus: 'pass',
+          seamAlignment: { totalSeams: 0, repeatedAdjacentLayerSeams: 0, maxVerticalRun: 0 },
+        },
         warnings: [],
       },
     });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await POST(makeReq({
       meshPath: '/tmp/cube.blend',
       voxelSize: 0.08,
       shell: false,
-    }) as any);
+    }));
     expect(res.status).toBe(200);
     expect(runVoxelPipelineMock).toHaveBeenCalledWith(
       expect.objectContaining({ meshPath: '/tmp/cube.blend', voxelSize: 0.08, shell: false }),
