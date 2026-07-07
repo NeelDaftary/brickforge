@@ -10,7 +10,7 @@ import { saveBuild, loadBuild } from '@/lib/storage/saved-builds';
 import type { BrickModelData } from '@/lib/engine/types';
 import type { PipelineStage } from '@/lib/pipeline/types';
 import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
-import { buildGuidedRepairSuggestions, type GuidedRepairSuggestion } from '@/lib/pipeline_v2/guided-repair';
+import { buildGuidedRepairIssues, type GuidedRepairIssue, type GuidedRepairSuggestion } from '@/lib/pipeline_v2/guided-repair';
 
 interface GeneratedModel extends BrickModelData {
   diagnostics?: {
@@ -262,13 +262,30 @@ function RepairSuggestionCard({
 function RepairSuggestions({
   model,
   onApply,
+  onFocusBrickIds,
 }: {
   model: GeneratedModel;
   onApply: (model: GeneratedModel) => void;
+  onFocusBrickIds: (ids: string[]) => void;
 }) {
-  const suggestions = useMemo(() => buildGuidedRepairSuggestions(model), [model]);
+  const issues = useMemo(() => buildGuidedRepairIssues(model), [model]);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [applyingId, setApplyingId] = useState<string | null>(null);
   const [repairError, setRepairError] = useState<string | null>(null);
+  const activeIssue: GuidedRepairIssue | undefined = issues[Math.min(activeIndex, Math.max(issues.length - 1, 0))];
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [model]);
+
+  useEffect(() => {
+    if (activeIndex >= issues.length) setActiveIndex(Math.max(0, issues.length - 1));
+  }, [activeIndex, issues.length]);
+
+  useEffect(() => {
+    onFocusBrickIds(activeIssue?.targetBrickIds ?? []);
+    return () => onFocusBrickIds([]);
+  }, [activeIssue?.id, activeIssue?.targetBrickIds, onFocusBrickIds]);
 
   async function handleApply(suggestion: GuidedRepairSuggestion) {
     setRepairError(null);
@@ -305,23 +322,49 @@ function RepairSuggestions({
     }
   }
 
-  if (suggestions.length === 0) return null;
+  if (issues.length === 0 || !activeIssue) return null;
 
   return (
     <div className="w-full border border-[#E0DFD9] rounded-lg px-4 py-3 bg-[#FAFAF7]">
       <div className="flex items-center justify-between gap-3 mb-3">
         <div>
-          <div className="text-xs font-bold uppercase tracking-[1px] text-[#555555]">Repair Suggestions</div>
+          <div className="text-xs font-bold uppercase tracking-[1px] text-[#555555]">Guided Repair Queue</div>
           <div className="text-[12px] text-[#777777] mt-0.5">
-            Preview the estimated tradeoff, then choose what to apply.
+            Work from the lowest unresolved issue upward.
           </div>
         </div>
         <span className="text-[11px] font-semibold text-[#8A5A00] bg-[#FFF8E1] border border-[#FFE082] rounded-full px-2 py-1">
-          User-approved
+          Bottom-up
         </span>
       </div>
-      <div className="grid gap-2">
-        {suggestions.map((suggestion) => (
+
+      <div className="flex items-center justify-between gap-3 mb-3 border border-[#E4E2DA] rounded-lg px-3 py-2 bg-white">
+        <button
+          onClick={() => setActiveIndex((index) => Math.max(0, index - 1))}
+          disabled={activeIndex === 0 || applyingId !== null}
+          className="px-3 py-1.5 text-xs font-bold border border-[#DDDDDD] rounded-lg text-[#555555] disabled:opacity-40 disabled:cursor-not-allowed hover:border-brick-red"
+        >
+          Previous
+        </button>
+        <div className="min-w-0 text-center">
+          <div className="text-[11px] font-bold uppercase tracking-[0.8px] text-[#777777]">
+            Issue {Math.min(activeIndex + 1, issues.length)} of {issues.length}
+          </div>
+          <div className="text-sm font-bold text-[#1A1A1A] truncate">{activeIssue.title}</div>
+          <div className="text-[11px] leading-snug text-[#777777] truncate">{activeIssue.description}</div>
+        </div>
+        <button
+          onClick={() => setActiveIndex((index) => Math.min(issues.length - 1, index + 1))}
+          disabled={activeIndex >= issues.length - 1 || applyingId !== null}
+          className="px-3 py-1.5 text-xs font-bold border border-[#DDDDDD] rounded-lg text-[#555555] disabled:opacity-40 disabled:cursor-not-allowed hover:border-brick-red"
+        >
+          Next
+        </button>
+      </div>
+
+      {activeIssue.suggestions.length > 0 ? (
+        <div className="grid gap-2">
+          {activeIssue.suggestions.map((suggestion) => (
           <RepairSuggestionCard
             key={suggestion.id}
             suggestion={suggestion}
@@ -329,8 +372,14 @@ function RepairSuggestions({
             isApplying={applyingId === suggestion.id}
             isBusy={applyingId !== null}
           />
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="border border-[#E4E2DA] rounded-lg px-3 py-3 bg-white text-[12px] leading-snug text-[#666666]">
+          No one-click structural edit is available for this issue yet. Inspect it in the viewer, use manual build/paint if needed, or move to the next issue.
+        </div>
+      )}
+
       {repairError && (
         <div className="mt-3 text-[12px] leading-snug text-[#B71C1C]">
           {repairError}
@@ -354,6 +403,7 @@ export default function HomePage() {
   const [savedBuildId, setSavedBuildId] = useState<string | null>(null);
   const [savedBuildsRefreshKey, setSavedBuildsRefreshKey] = useState(0);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const [repairFocusBrickIds, setRepairFocusBrickIds] = useState<string[]>([]);
 
   const isWorking = stage !== 'idle' && stage !== 'ready' && stage !== 'error';
   const visibleWarnings = result?.diagnostics?.warnings?.filter((w) => !layoutWarningIsCoveredByHealthPanel(w)) ?? [];
@@ -787,10 +837,12 @@ export default function HomePage() {
                 setResult(newModel);
                 setSaveMessage('Repair applied. Review the build before saving.');
               }}
+              onFocusBrickIds={setRepairFocusBrickIds}
             />
             <LegoCanvas
               model={result}
               diagnosticBrickIds={result.diagnostics?.layoutIds}
+              focusedBrickIds={repairFocusBrickIds}
               onModelUpdate={(newModel) => {
                 setResult({ ...result, ...newModel });
               }}

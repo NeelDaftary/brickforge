@@ -46,6 +46,7 @@ interface BrickSceneProps {
   marginalCells?: Set<string>;
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
   diagnosticOverlayMode?: 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'supportedCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
+  focusedBrickIds?: string[];
 }
 
 export function BrickScene({
@@ -65,6 +66,7 @@ export function BrickScene({
   marginalCells,
   diagnosticBrickIds,
   diagnosticOverlayMode = 'off',
+  focusedBrickIds,
 }: BrickSceneProps) {
   // Layer view only applies to add/erase — paint mode shows all layers
   const hasLayerView = editMode && activeLayer != null && editTool !== 'paint';
@@ -74,14 +76,17 @@ export function BrickScene({
   const gridSize = Math.max(30, Math.ceil(extent * 1.5 / 2) * 2); // round up to even, at least 30
   const planeSize = gridSize * 2;
   const selectedDiagnosticIds = useMemo(() => {
+    if (focusedBrickIds?.length) return new Set(focusedBrickIds);
     if (diagnosticOverlayMode === 'auto' || diagnosticOverlayMode === 'off') return new Set<string>();
     return new Set(diagnosticBrickIds?.[diagnosticOverlayMode as keyof GraphDiagnosticBrickIds] ?? []);
-  }, [diagnosticBrickIds, diagnosticOverlayMode]);
+  }, [diagnosticBrickIds, diagnosticOverlayMode, focusedBrickIds]);
   const diagnosticFocusActive = selectedDiagnosticIds.size > 0;
+  const repairFocusActive = (focusedBrickIds?.length ?? 0) > 0;
   const dangerousDiagnosticOverlay = diagnosticOverlayMode === 'floating' ||
     diagnosticOverlayMode === 'unsupported' ||
     diagnosticOverlayMode === 'weakCantilever' ||
-    diagnosticOverlayMode === 'oracle';
+    diagnosticOverlayMode === 'oracle' ||
+    repairFocusActive;
 
   return (
     <>

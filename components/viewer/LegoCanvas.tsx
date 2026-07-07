@@ -19,6 +19,7 @@ import { ReferenceImages } from './ReferenceImages';
 interface LegoCanvasProps {
   model: BrickModelData;
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
+  focusedBrickIds?: string[];
   onModelUpdate?: (model: BrickModelData) => void;
 }
 
@@ -129,7 +130,7 @@ function diagnosticCount(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnos
   return ids?.[mode as keyof GraphDiagnosticBrickIds]?.length ?? 0;
 }
 
-export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCanvasProps) {
+export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModelUpdate }: LegoCanvasProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('complete');
   const [currentStep, setCurrentStep] = useState(1);
   const [diagnosticOverlayMode, setDiagnosticOverlayMode] = useState<DiagnosticOverlayMode>('off');
@@ -493,6 +494,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
               marginalCells={marginalCells}
               diagnosticBrickIds={diagnosticBrickIds}
               diagnosticOverlayMode={activeOverlayMode}
+              focusedBrickIds={focusedBrickIds}
             />
           </Canvas>
 

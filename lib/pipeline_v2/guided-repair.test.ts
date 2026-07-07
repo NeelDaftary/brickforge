@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BrickModelData } from '@/lib/engine/types';
 import { analyzeBrickGraph, summarizeGraphDiagnostics } from './brick-graph';
-import { buildGuidedRepairSuggestions } from './guided-repair';
+import { buildGuidedRepairIssues, buildGuidedRepairSuggestions } from './guided-repair';
 
 function brick(id: string, x: number, y: number, z: number, w = 1, d = 1) {
   return {
@@ -76,6 +76,62 @@ describe('guided repair suggestions', () => {
     };
 
     expect(buildGuidedRepairSuggestions(model)).toEqual([]);
+  });
+
+  it('orders repair issues from lower layers upward', () => {
+    const model: BrickModelData = {
+      name: 'bottom up',
+      description: '',
+      totalBricks: 2,
+      bricks: [
+        brick('higher', 0, 0, 3),
+        brick('lower', 1, 0, 1),
+      ],
+      voxelData: {
+        grid: [
+          [['0', '0', '0', 'R']],
+          [['0', 'R', '0', '0']],
+        ],
+        colorLegend: { R: '#DB0000' },
+        gridSize: 4,
+      },
+    };
+
+    const issues = buildGuidedRepairIssues(model);
+
+    expect(issues.length).toBeGreaterThanOrEqual(2);
+    expect(issues[0].primaryBrickId).toBe('lower');
+    expect(issues[0].layer).toBe(1);
+    expect(issues[1].primaryBrickId).toBe('higher');
+    expect(issues[1].layer).toBe(3);
+  });
+
+  it('scopes issue suggestions to one selected defect instead of the whole model', () => {
+    const model: BrickModelData = {
+      name: 'local only',
+      description: '',
+      totalBricks: 2,
+      bricks: [
+        brick('left', 0, 0, 1),
+        brick('right', 1, 0, 1),
+      ],
+      voxelData: {
+        grid: [
+          [['0', 'R']],
+          [['0', 'R']],
+        ],
+        colorLegend: { R: '#DB0000' },
+        gridSize: 2,
+      },
+    };
+
+    const issues = buildGuidedRepairIssues(model);
+    const firstSuggestion = issues[0].suggestions[0];
+
+    expect(issues).toHaveLength(2);
+    expect(firstSuggestion.targetBrickIds).toEqual([issues[0].primaryBrickId]);
+    expect(firstSuggestion.addedVoxels).toBe(1);
+    expect(firstSuggestion.intent.supportCells).toHaveLength(1);
   });
 
   it('can fully support weak cantilevers when the user accepts the larger repair', () => {
