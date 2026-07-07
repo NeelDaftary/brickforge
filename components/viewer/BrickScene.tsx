@@ -77,6 +77,7 @@ export function BrickScene({
     if (diagnosticOverlayMode === 'auto' || diagnosticOverlayMode === 'off') return new Set<string>();
     return new Set(diagnosticBrickIds?.[diagnosticOverlayMode as keyof GraphDiagnosticBrickIds] ?? []);
   }, [diagnosticBrickIds, diagnosticOverlayMode]);
+  const diagnosticFocusActive = selectedDiagnosticIds.size > 0;
   const dangerousDiagnosticOverlay = diagnosticOverlayMode === 'floating' ||
     diagnosticOverlayMode === 'unsupported' ||
     diagnosticOverlayMode === 'weakCantilever' ||
@@ -126,6 +127,7 @@ export function BrickScene({
         // Stability flags
         const cellKey = brickGz != null ? `${brick.metadata!.gx},${brick.metadata!.gy},${brickGz}` : '';
         const diagnosticHit = selectedDiagnosticIds.has(brick.id);
+        const diagnosticMuted = diagnosticFocusActive && !diagnosticHit;
         const unstable = (editMode && unstableCells?.has(cellKey)) || (diagnosticHit && dangerousDiagnosticOverlay);
         const marginal = (editMode && marginalCells?.has(cellKey)) || (diagnosticHit && !dangerousDiagnosticOverlay);
 
@@ -139,6 +141,7 @@ export function BrickScene({
             adjacentLayer={adjacentLayer}
             unstable={unstable}
             marginal={marginal}
+            diagnosticMuted={diagnosticMuted}
             onClick={adjacentLayer ? undefined : onBrickClick}
           />
         );

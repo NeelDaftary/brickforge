@@ -22,10 +22,22 @@ export interface BrickMeshProps {
   adjacentLayer?: boolean;
   unstable?: boolean;
   marginal?: boolean;
+  diagnosticMuted?: boolean;
   onClick?: (brick: BrickInstance, shiftKey: boolean) => void;
 }
 
-export function BrickMesh({ brick, faded = false, highlighted = false, yOffset = 0, hidden = false, adjacentLayer = false, unstable = false, marginal = false, onClick }: BrickMeshProps) {
+export function BrickMesh({
+  brick,
+  faded = false,
+  highlighted = false,
+  yOffset = 0,
+  hidden = false,
+  adjacentLayer = false,
+  unstable = false,
+  marginal = false,
+  diagnosticMuted = false,
+  onClick,
+}: BrickMeshProps) {
   const unstableRef = useRef<THREE.MeshBasicMaterial>(null);
 
   // Pulse animation for unstable overlay — skip frame work when not unstable
@@ -58,11 +70,13 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
   const worldX = brick.position[0] * UNIT;
   const worldY = brick.position[1] * PLATE_HEIGHT + yOffset;
   const worldZ = brick.position[2] * UNIT;
-  const isTransparent = faded || adjacentLayer;
-  const bodyColor = isTransparent
+  const isTransparent = faded || adjacentLayer || diagnosticMuted;
+  const bodyColor = diagnosticMuted
+    ? new THREE.Color('#D6D6D0')
+    : isTransparent
     ? new THREE.Color(brick.color).lerp(new THREE.Color('#F0EFE9'), adjacentLayer ? 0.65 : 0.5)
     : new THREE.Color(brick.color);
-  const bodyOpacity = adjacentLayer ? 0.08 : faded ? 0.55 : 1;
+  const bodyOpacity = diagnosticMuted ? 0.2 : adjacentLayer ? 0.08 : faded ? 0.55 : 1;
 
   // No physical rotation when studWidth/studDepth are set — dimensions are already correct
   const useRotation = brick.studWidth == null;
@@ -79,11 +93,11 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
         <boxGeometry args={[dims.width * UNIT - 0.04, dims.height - 0.02, dims.depth * UNIT - 0.04]} />
         <meshPhongMaterial
           color={bodyColor}
-          shininess={isTransparent ? 20 : 48}
+          shininess={diagnosticMuted ? 8 : isTransparent ? 20 : 48}
           specular="#555555"
           transparent={isTransparent}
           opacity={bodyOpacity}
-          depthWrite={!adjacentLayer}
+          depthWrite={!adjacentLayer && !diagnosticMuted}
         />
       </mesh>
 
@@ -101,11 +115,11 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
                 <cylinderGeometry args={[STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12]} />
                 <meshPhongMaterial
                   color={bodyColor}
-                  shininess={isTransparent ? 20 : 48}
+                  shininess={diagnosticMuted ? 8 : isTransparent ? 20 : 48}
                   specular="#555555"
                   transparent={isTransparent}
                   opacity={bodyOpacity}
-                  depthWrite={!adjacentLayer}
+                  depthWrite={!adjacentLayer && !diagnosticMuted}
                 />
               </mesh>
             );

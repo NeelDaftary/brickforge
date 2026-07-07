@@ -126,7 +126,7 @@ function diagnosticCount(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnos
 export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCanvasProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('complete');
   const [currentStep, setCurrentStep] = useState(1);
-  const [diagnosticOverlayMode, setDiagnosticOverlayMode] = useState<DiagnosticOverlayMode>('auto');
+  const [diagnosticOverlayMode, setDiagnosticOverlayMode] = useState<DiagnosticOverlayMode>('off');
   const activeOverlayMode = activeDiagnosticOverlay(diagnosticOverlayMode, diagnosticBrickIds);
   const maxStep = useMemo(() => getMaxStep(model), [model]);
 
@@ -521,6 +521,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
                 Issues
               </span>
               {([
+                ['off', 'Off'],
                 ['auto', 'Auto'],
                 ['floating', 'Floating'],
                 ['unsupported', 'Unsupported'],
@@ -530,7 +531,6 @@ export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCan
                 ['bridge', 'Bridge'],
                 ['internalSupport', 'Int support'],
                 ['oracle', 'Oracle'],
-                ['off', 'Off'],
               ] as Array<[DiagnosticOverlayMode, string]>).map(([mode, label]) => {
                 const isActive = diagnosticOverlayMode === mode || (diagnosticOverlayMode === 'auto' && activeOverlayMode === mode);
                 return (
