@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
-import { analyzeBrickGraph, buildBrickGraph, summarizeGraphDiagnosticBrickIds, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
+import { buildLayoutDiagnostics } from '@/lib/pipeline/layout-diagnostics';
 import { BRICKER_VARIANTS, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const VoxelRequestSchema = z.object({
@@ -42,8 +42,7 @@ function buildDiagnostics(
   bricks: ReturnType<typeof voxelGridToBrickModel>['bricks'],
   stabilityV2?: StabilityV2Stats,
 ) {
-  const graph = buildBrickGraph(bricks);
-  const graphDiagnostics = analyzeBrickGraph(graph);
+  const layoutDiagnostics = buildLayoutDiagnostics(bricks, stabilityV2);
   return {
     pipeline: 'brickforge-v3',
     timingMs: Date.now() - startedAt,
@@ -53,11 +52,8 @@ function buildDiagnostics(
     totalBricks,
     shelled: shell,
     brickerEngine,
-    layout: summarizeGraphDiagnostics(graphDiagnostics, {
-      internalSupportBricks: stabilityV2?.internalSupport?.internalSupportBricks ?? 0,
-      internalSupportVoxels: stabilityV2?.internalSupport?.internalSupportVoxels ?? 0,
-    }),
-    layoutIds: summarizeGraphDiagnosticBrickIds(graphDiagnostics, graph, stabilityV2?.oracleFailureBrickIds ?? []),
+    layout: layoutDiagnostics.layout,
+    layoutIds: layoutDiagnostics.layoutIds,
     ...(stabilityV2 ? { stabilityV2 } : {}),
   };
 }

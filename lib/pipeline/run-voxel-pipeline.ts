@@ -11,16 +11,10 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
-import {
-  analyzeBrickGraph,
-  buildBrickGraph,
-  summarizeGraphDiagnosticBrickIds,
-  summarizeGraphDiagnostics,
-  type GraphDiagnosticBrickIds,
-  type GraphDiagnosticsSummary,
-} from '@/lib/pipeline_v2/brick-graph';
+import type { GraphDiagnosticBrickIds, GraphDiagnosticsSummary } from '@/lib/pipeline_v2/brick-graph';
 import { preflightMeshPath, type MeshPreflightResult } from '@/lib/pipeline/mesh-preflight';
 import { checkBrickStability } from '@/lib/pipeline/brick-stability';
+import { buildLayoutDiagnostics } from '@/lib/pipeline/layout-diagnostics';
 import type { BrickModelData } from '@/lib/engine/types';
 import {
   BLENDER_VOXEL_TO_GRID_SCRIPT,
@@ -296,28 +290,18 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
       : voxelGridToBrickModel(voxelGrid, name, description, { shell });
     const stabilityV2Stats = (model as BrickModelData & { stabilityV2Stats?: StabilityV2Stats }).stabilityV2Stats;
 
-    // Step 4: Graduated stability check
-    const stability = checkBrickStability(model.bricks);
-    const layoutGraph = buildBrickGraph(model.bricks);
-    const graphDiagnostics = analyzeBrickGraph(layoutGraph);
-    const layoutDiagnostics = summarizeGraphDiagnostics(graphDiagnostics, {
-      internalSupportBricks: stabilityV2Stats?.internalSupport?.internalSupportBricks ?? 0,
-      internalSupportVoxels: stabilityV2Stats?.internalSupport?.internalSupportVoxels ?? 0,
-    });
-    const layoutIds = summarizeGraphDiagnosticBrickIds(graphDiagnostics, layoutGraph, stabilityV2Stats?.oracleFailureBrickIds ?? []);
-    if (stability.warnings.length > 0) {
-      warnings.push(...stability.warnings);
+    // Step 4: Graduated stability and graph diagnostics
+    const layoutDiagnostics = buildLayoutDiagnostics(model.bricks, stabilityV2Stats);
+    if (layoutDiagnostics.stabilityWarnings.length > 0) {
+      warnings.push(...layoutDiagnostics.stabilityWarnings);
     }
-    if (isStabilityV2Variant(brickerEngine) && (layoutDiagnostics.floatingBricks > 0 || layoutDiagnostics.unsupportedBricks > 0)) {
+    if (isStabilityV2Variant(brickerEngine) && (layoutDiagnostics.layout.floatingBricks > 0 || layoutDiagnostics.layout.unsupportedBricks > 0)) {
       warnings.push(
         `${brickerEngine}: defects remain after repair. This model may need external support, a larger scale, thicker geometry, or a different orientation.`,
       );
     }
 
-    // Count completely unsupported bricks (zero support from below)
-    const unsupportedCount = [...stability.brickSupport.values()]
-      .filter(info => info.supportRatio === 0 && info.tier !== 'stable')
-      .length;
+    const unsupportedCount = layoutDiagnostics.unsupportedBricks;
     if (unsupportedCount > 0) {
       console.log(`[stability] ${unsupportedCount} brick(s) have zero support from below`);
     }
@@ -367,8 +351,8 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         totalBricks: model.totalBricks,
         shelled: shell,
         unsupportedBricks: unsupportedCount,
-        layout: layoutDiagnostics,
-        layoutIds,
+        layout: layoutDiagnostics.layout,
+        layoutIds: layoutDiagnostics.layoutIds,
         brickerEngine,
         ...(shadowSummary ? { shadowComparison: shadowSummary } : {}),
         ...(colorDiagnostics ? {
