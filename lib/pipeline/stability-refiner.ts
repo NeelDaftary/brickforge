@@ -365,8 +365,6 @@ export function refineStability(
       const cells = decomposeToCells(region);
       const regionBrickSet = new Set(region);
 
-      let improved = false;
-
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         totalAttempts++;
 
@@ -389,7 +387,6 @@ export function refineStability(
 
         if (newScore > currentScore || (newScore === currentScore && newBrickCount < currentBrickCount)) {
           // Accept — update regionBrickSet for subsequent checks
-          improved = true;
           anyImproved = true;
           regionsImproved++;
           break;

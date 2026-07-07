@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BrickModelData } from '@/lib/engine/types';
 import { analyzeBrickGraph, summarizeGraphDiagnostics } from './brick-graph';
-import { buildGuidedRepairIssues, buildGuidedRepairSuggestions } from './guided-repair';
+import { buildGuidedRepairIssues } from './guided-repair';
 
 function brick(id: string, x: number, y: number, z: number, w = 1, d = 1) {
   return {
@@ -26,8 +26,8 @@ describe('guided repair suggestions', () => {
       bricks: [brick('unsupported', 0, 0, 1)],
     };
 
-    const suggestions = buildGuidedRepairSuggestions(model);
-    const minimal = suggestions.find((suggestion) => suggestion.id === 'minimal_support');
+    const issues = buildGuidedRepairIssues(model);
+    const minimal = issues[0]?.suggestions[0];
 
     expect(minimal).toBeDefined();
     expect(minimal?.application).toBe('direct');
@@ -51,7 +51,7 @@ describe('guided repair suggestions', () => {
       },
     };
 
-    const minimal = buildGuidedRepairSuggestions(model).find((suggestion) => suggestion.id === 'minimal_support');
+    const minimal = buildGuidedRepairIssues(model)[0]?.suggestions[0];
 
     expect(minimal).toBeDefined();
     expect(minimal?.application).toBe('rebrick');
@@ -75,7 +75,7 @@ describe('guided repair suggestions', () => {
       },
     };
 
-    expect(buildGuidedRepairSuggestions(model)).toEqual([]);
+    expect(buildGuidedRepairIssues(model)).toEqual([]);
   });
 
   it('orders repair issues from lower layers upward', () => {
@@ -146,12 +146,16 @@ describe('guided repair suggestions', () => {
     };
     const before = summarizeGraphDiagnostics(analyzeBrickGraph(model.bricks));
 
-    const full = buildGuidedRepairSuggestions(model).find((suggestion) => suggestion.id === 'full_support');
+    const footprint = buildGuidedRepairIssues(model)
+      .find((issue) => issue.defectType === 'weak_cantilever')
+      ?.suggestions.find((suggestion) => (
+      suggestion.title === 'Support this brick footprint'
+    ));
 
     expect(before.weakCantilevers).toBe(1);
-    expect(full).toBeDefined();
-    expect(full?.addedBricks).toBe(3);
-    expect(full?.after.weakCantilevers).toBe(0);
-    expect(full?.after.unsupportedBricks).toBe(0);
+    expect(footprint).toBeDefined();
+    expect(footprint?.addedBricks).toBe(3);
+    expect(footprint?.after.weakCantilevers).toBe(0);
+    expect(footprint?.after.unsupportedBricks).toBe(0);
   });
 });

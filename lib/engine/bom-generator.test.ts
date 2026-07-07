@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateBOM, getBOMForStep, type BOMItem } from './bom-generator';
+import { generateBOM, getBOMForStep } from './bom-generator';
 import type { BrickInstance, BrickModelData } from './types';
 
 // ---------------------------------------------------------------------------

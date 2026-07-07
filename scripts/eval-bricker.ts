@@ -8,6 +8,7 @@ import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v
 import { analyzeBrickGraph, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
 import { BRICKER_VARIANTS, isBrickerVariant, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 import type { BrickModelData, VoxelData } from '@/lib/engine/types';
+import { buildReadinessStatus } from '@/lib/pipeline/build-readiness';
 
 export interface EvalOptions {
   engines: BrickerVariant[];
@@ -97,24 +98,13 @@ export function parseArgs(argv: string[]): EvalOptions {
   return options;
 }
 
-function prototypeUnsupportedLimit(totalBricks: number): number {
-  if (totalBricks < 100) return Math.max(1, Math.ceil(totalBricks * 0.05));
-  return Math.min(10, Math.max(5, Math.ceil(totalBricks * 0.015)));
-}
-
-function prototypeWeakLimit(totalBricks: number): number {
-  if (totalBricks < 100) return Math.max(2, Math.ceil(totalBricks * 0.08));
-  return Math.min(20, Math.max(8, Math.ceil(totalBricks * 0.03)));
-}
-
 function readinessStatus(layout: ReturnType<typeof summarizeGraphDiagnostics>, totalBricks: number): EvalRow['readinessStatus'] {
-  if (layout.floatingBricks > 0) return 'needs_repair';
-  if (layout.unsupportedBricks === 0 && layout.weakCantilevers === 0) return 'ready';
-  if (
-    layout.unsupportedBricks <= prototypeUnsupportedLimit(totalBricks) &&
-    layout.weakCantilevers <= prototypeWeakLimit(totalBricks)
-  ) return 'prototype';
-  return 'needs_repair';
+  return buildReadinessStatus({
+    totalBricks,
+    floating: layout.floatingBricks,
+    unsupported: layout.unsupportedBricks,
+    weak: layout.weakCantilevers,
+  });
 }
 
 function deriveGridSize(grid: string[][][]): number {

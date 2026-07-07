@@ -39,7 +39,6 @@ interface BrickSceneProps {
   editTool?: EditTool;
   activeLayer?: number;
   selectedColor?: string | null;
-  colorLegend?: Record<string, string>;
   onGridCellClick?: (gx: number, gy: number, gz: number) => void;
   showAdjacentLayers?: boolean;
   unstableCells?: Set<string>;
@@ -59,7 +58,6 @@ export function BrickScene({
   editTool,
   activeLayer,
   selectedColor,
-  colorLegend,
   onGridCellClick,
   showAdjacentLayers = true,
   unstableCells,
@@ -152,13 +150,12 @@ export function BrickScene({
         );
       })}
 
-      {editMode && editGrid && editTool && editTool !== 'paint' && activeLayer != null && colorLegend && onGridCellClick && (
+      {editMode && editGrid && editTool && editTool !== 'paint' && activeLayer != null && onGridCellClick && (
         <EditGridPlane
           editGrid={editGrid}
           activeLayer={activeLayer}
           editTool={editTool}
           selectedColor={selectedColor ?? null}
-          colorLegend={colorLegend}
           onGridCellClick={onGridCellClick}
         />
       )}

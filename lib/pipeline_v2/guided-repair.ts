@@ -12,7 +12,6 @@ import {
   type WeakRegionType,
 } from './brick-graph';
 
-type GuidedRepairMode = 'minimal_support' | 'balanced_support' | 'full_support';
 type GuidedRepairApplication = 'rebrick' | 'direct';
 type LocalRepairMode = 'local_minimal_support' | 'local_footprint_support';
 
@@ -273,61 +272,6 @@ function buildSuggestionFromCells(
   };
 }
 
-function buildSuggestion(
-  model: BrickModelData & { diagnostics?: unknown },
-  mode: GuidedRepairMode,
-): GuidedRepairSuggestion | null {
-  const { graph, summary, ids } = graphAndDiagnostics(model);
-  const criticalIds = [...new Set([...ids.floating, ...ids.unsupported])];
-  const targetBrickIds = mode === 'full_support' || mode === 'balanced_support'
-    ? [...new Set([...criticalIds, ...ids.weakCantilever])]
-    : criticalIds;
-  if (targetBrickIds.length === 0) return null;
-
-  const bricksById = new Map(graph.bricks.map((brick) => [brick.id, brick]));
-  const occupied = occupiedSet(graph);
-  const addedCellsByKey = new Map<string, SupportCell>();
-
-  for (const id of targetBrickIds) {
-    const brick = bricksById.get(id);
-    if (!brick) continue;
-    const cells = mode === 'full_support'
-      ? allUnsupportedFootprintColumns(brick, occupied)
-      : chooseShortestSupportColumn(brick, occupied);
-    for (const cell of cells) {
-      const cellKey = key(cell.x, cell.y, cell.z);
-      if (occupied.has(cellKey)) continue;
-      occupied.add(cellKey);
-      addedCellsByKey.set(cellKey, cell);
-    }
-  }
-
-  const addedCells = [...addedCellsByKey.values()];
-
-  return buildSuggestionFromCells(
-    model,
-    summary,
-    mode,
-    mode === 'full_support'
-      ? 'Add full support columns'
-      : mode === 'balanced_support'
-        ? 'Add balanced support columns'
-        : 'Add minimal support columns',
-    mode === 'full_support'
-      ? 'Adds support under every unsupported stud in floating, unsupported, and weak-cantilever bricks.'
-      : mode === 'balanced_support'
-        ? 'Adds one shortest support path under each floating, unsupported, or weak-cantilever brick.'
-        : 'Adds the shortest visible support path under each floating or unsupported brick.',
-    mode === 'full_support'
-      ? 'Most reliable, but can add many visible grey support bricks.'
-      : mode === 'balanced_support'
-        ? 'Moderate visual change; may not eliminate every weak cantilever.'
-        : 'Lowest visual change, but weak cantilevers may remain.',
-    targetBrickIds,
-    addedCells,
-  );
-}
-
 function defectLabel(defectType: WeakRegionType): string {
   if (defectType === 'weak_cantilever') return 'weak cantilever';
   return defectType;
@@ -433,14 +377,4 @@ export function buildGuidedRepairIssues(
 export function guidedRepairDiagnostics(model: BrickModelData): GuidedRepairDiagnostics {
   const { summary, ids } = graphAndDiagnostics(model);
   return { layout: summary, layoutIds: ids };
-}
-
-export function buildGuidedRepairSuggestions(
-  model: BrickModelData & { diagnostics?: unknown },
-): GuidedRepairSuggestion[] {
-  return [
-    buildSuggestion(model, 'minimal_support'),
-    buildSuggestion(model, 'balanced_support'),
-    buildSuggestion(model, 'full_support'),
-  ].filter((suggestion): suggestion is GuidedRepairSuggestion => Boolean(suggestion));
 }

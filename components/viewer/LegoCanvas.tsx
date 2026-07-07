@@ -336,7 +336,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
     } finally {
       setApplying(false);
     }
-  }, [editedGrid, voxelData, fullLegend, model.name, model.description, onModelUpdate]);
+  }, [editedGrid, voxelData, fullLegend, model, onModelUpdate]);
 
   // ─── Unified voxel action handler ──────────────────────────────────
 
@@ -487,7 +487,6 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
               editTool={editTool}
               activeLayer={activeLayer}
               selectedColor={selectedColor}
-              colorLegend={fullLegend}
               onGridCellClick={handleGridCellClick}
               showAdjacentLayers={showAdjacentLayers}
               unstableCells={unstableCells}

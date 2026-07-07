@@ -83,8 +83,6 @@ describe('POST /api/generate-model', () => {
     generateModelMock.mockImplementation(async function* () {
       yield { stage: 'submitting', message: 's', progress: 1 } as const;
       throw new PipelineError('HYPER3D_TIMEOUT', 'generation timed out');
-      // eslint-disable-next-line @typescript-eslint/no-unreachable
-      return { meshPath: '', fileName: '', prompt: '' };
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -99,8 +97,6 @@ describe('POST /api/generate-model', () => {
   it('wraps generic Error as INTERNAL_ERROR in the SSE error event', async () => {
     generateModelMock.mockImplementation(async function* () {
       throw new Error('kaboom');
-      // eslint-disable-next-line @typescript-eslint/no-unreachable
-      yield { stage: 'submitting', message: 's', progress: 1 } as const;
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
