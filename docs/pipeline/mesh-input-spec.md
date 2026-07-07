@@ -1,7 +1,7 @@
 # Mesh Input Spec (Voxelization)
 
 > **See [blender-export-spec.md](./blender-export-spec.md) for the full Blender export specification.**
-> **See [lego-blender.md](./lego-blender.md) for Hyper3D → Blender → BrickForge workflows.**
+> **See [lego-blender.md](./lego-blender.md) for external mesh → Blender → BrickForge preparation workflows.**
 
 ## Workflow Choice
 

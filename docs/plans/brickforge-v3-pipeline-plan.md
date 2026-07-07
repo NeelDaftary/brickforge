@@ -190,7 +190,7 @@ The pipeline accepts 3D models via:
 
 2. **Imported mesh** — GLB, OBJ, STL, PLY files are imported into Blender first, then voxelized. The import step converts any format to a Blender mesh.
 
-3. **AI-generated model** — Via Hyper3D Rodin or similar text-to-3D services (accessed via MCP), which produce a textured mesh that can be saved as `.blend` or exported as GLB.
+3. **External/generated model** — Via an external modeling or generation service, which produces a textured mesh that can be saved as `.blend` or exported as GLB before upload.
 
 ### 3.2 Model Preparation Requirements
 
@@ -1032,7 +1032,7 @@ async function runVoxelPipeline(options) {
 
 ### Manual E2E Verification
 
-1. Open Blender, generate model via Hyper3D Rodin (e.g., Squirtle)
+1. Open Blender and prepare an externally sourced model (e.g., Squirtle)
 2. Save as `.blend`
 3. Run: `blender --background squirtle.blend --python blender_voxel_to_grid.py -- --voxel-size 0.06 --output /tmp/squirtle.json`
 4. Verify JSON has reasonable grid dimensions and multiple colors

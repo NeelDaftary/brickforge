@@ -67,7 +67,7 @@ Tasks:
   - generation promises
   - BrickLink/parts promises
   - “stable/buildable” claims that diagnostics cannot yet prove
-- Decide whether hidden text-to-model backend code stays as an internal experiment or moves behind a separate dev-only route.
+- Confirm hidden text-to-model backend code has been removed from the product codebase.
 
 Deliverable:
 - A product surface map with every visible entry point and its backing API/module.
@@ -126,8 +126,8 @@ Likely targets:
 - `app/api/voxelize/route.ts`
   - Share bricker engine selection with upload.
   - Avoid route-specific diagnostics shaping if pipeline can own it.
-- `app/api/generate-model/route.ts`
-  - Decide whether it remains dev-only, hidden, or removed later.
+- Removed text-to-3D route
+  - Keep it deleted unless the product explicitly reintroduces generation as a separate feature.
 - Error handling
   - Keep one error-to-response utility per API style.
   - Avoid ad hoc `try/catch` response shapes.

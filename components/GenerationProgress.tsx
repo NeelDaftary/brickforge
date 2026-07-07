@@ -8,14 +8,6 @@ interface GenerationProgressProps {
   error?: string;
 }
 
-const GENERATE_STAGES: PipelineStage[] = [
-  'generating_model',
-  'downloading_mesh',
-  'voxelizing',
-  'optimizing_bricks',
-  'ready',
-];
-
 const UPLOAD_STAGES: PipelineStage[] = [
   'uploading',
   'validating',
@@ -24,16 +16,15 @@ const UPLOAD_STAGES: PipelineStage[] = [
   'ready',
 ];
 
-function getStageOrder(stage: PipelineStage): PipelineStage[] {
-  if (stage === 'uploading' || stage === 'validating') return UPLOAD_STAGES;
-  return GENERATE_STAGES;
+function getStageOrder(): PipelineStage[] {
+  return UPLOAD_STAGES;
 }
 
 export function GenerationProgress({ stage, error }: GenerationProgressProps) {
   const progress = STAGE_PROGRESS[stage];
   const label = error || STAGE_LABELS[stage];
   const isError = stage === 'error';
-  const stageOrder = getStageOrder(stage);
+  const stageOrder = getStageOrder();
 
   return (
     <div className="w-full flex flex-col gap-3">

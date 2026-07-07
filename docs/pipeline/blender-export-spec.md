@@ -6,7 +6,7 @@ This document defines how 3D models should be created in Blender and exported
 for the BrickForge voxelization pipeline. Following this spec ensures accurate
 color preservation and clean geometry for brick conversion.
 
-> For Hyper3D → Blender → BrickForge workflows, see `lego-blender.md`
+> For external mesh → Blender → BrickForge preparation workflows, see `lego-blender.md`
 > (the authoritative reference). This doc covers general Blender export rules.
 
 ## Export Format: GLB (Binary glTF)

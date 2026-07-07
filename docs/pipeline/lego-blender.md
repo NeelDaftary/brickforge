@@ -1,6 +1,7 @@
-# BrickForge: Blender MCP — Authoritative Reference
+# BrickForge: External Blender Asset Preparation Reference
 
-> **This is the single source of truth for generating LEGO-ready models via Blender MCP.**
+> **This is the reference for preparing externally generated or manually created Blender assets for BrickForge.**
+> BrickForge no longer exposes an in-app text-to-3D generation API.
 > All color values are derived from `lib/engine/color-palette.ts`.
 > If any other doc contradicts this file, this file wins.
 
@@ -43,7 +44,7 @@ They match `COLOR_PALETTE` in `lib/engine/color-palette.ts` and
 ## Pipeline Overview
 
 ```
-Hyper3D Rodin (text prompt -> 3D mesh)
+External mesh source (manual Blender work, MCP tool, downloaded GLB, etc.)
     |
 Import into Blender
     |
@@ -60,14 +61,11 @@ Voxelizer reads PBR baseColorFactor per sub-mesh
 
 ---
 
-## Step 1 — Generate Model via Hyper3D Rodin
+## Step 1 — Bring A Mesh Into Blender
 
-Use `generate_hyper3d_model_via_text` (Blender MCP tool) or the
-BrickForge Hyper3D client (`/api/generate-model`). This produces a
-textured GLB mesh with PBR materials.
-
-Poll `poll_rodin_job_status` until all jobs report "Done", then
-`import_generated_asset` to bring the mesh into Blender.
+Use Blender directly, an external generation tool, or an existing GLB/OBJ/STL/PLY
+asset. If an external tool produces a textured GLB, import it into Blender before
+normalizing materials and exporting for BrickForge upload.
 
 ## Step 2 — Create LEGO Palette Materials
 
@@ -285,7 +283,7 @@ Verify materials have actual LEGO palette colors, not Blender defaults.
 **`to_color()` error in voxelizer:**
 trimesh version incompatibility with texture sampling. The PBR material
 path avoids this entirely — the texture path is a fallback for raw
-Hyper3D GLBs that haven't been processed through Blender.
+GLBs that haven't been processed through Blender.
 
 ## What NOT to Do
 
