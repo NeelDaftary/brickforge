@@ -9,6 +9,7 @@ import { SavedBuilds } from '@/components/SavedBuilds';
 import { saveBuild, loadBuild } from '@/lib/storage/saved-builds';
 import type { BrickModelData } from '@/lib/engine/types';
 import type { PipelineStage } from '@/lib/pipeline/types';
+import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
 
 interface GeneratedModel extends BrickModelData {
   diagnostics?: {
@@ -19,7 +20,7 @@ interface GeneratedModel extends BrickModelData {
     voxelLayers?: number;
     totalBricks?: number;
     shelled?: boolean;
-    brickerEngine?: 'legacy' | 'stability_v2';
+    brickerEngine?: BrickerVariant;
     shadowComparison?: {
       compared?: boolean;
       primaryBricks?: number;
@@ -50,6 +51,16 @@ interface GeneratedModel extends BrickModelData {
         repeatedAdjacentLayerSeams?: number;
         maxVerticalRun?: number;
       };
+    };
+    layoutIds?: {
+      floating?: string[];
+      unsupported?: string[];
+      weakCantilever?: string[];
+      supportedCantilever?: string[];
+      articulation?: string[];
+      bridge?: string[];
+      internalSupport?: string[];
+      oracle?: string[];
     };
     stabilityV2?: {
       repair?: {
@@ -614,6 +625,7 @@ export default function HomePage() {
             <BuildHealth diagnostics={result.diagnostics} />
             <LegoCanvas
               model={result}
+              diagnosticBrickIds={result.diagnostics?.layoutIds}
               onModelUpdate={(newModel) => {
                 setResult({ ...result, ...newModel });
               }}

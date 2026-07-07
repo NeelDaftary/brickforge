@@ -219,7 +219,7 @@ describe('POST /api/upload', () => {
   it('forwards experimental bricker engine options to the pipeline', async () => {
     const form = new FormData();
     form.append('mesh', blendFile('BLENDER-v30'));
-    form.append('brickerEngine', 'stability_v2');
+    form.append('brickerEngine', 'v2_tree_repair');
     form.append('shadowCompare', 'true');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -227,7 +227,7 @@ describe('POST /api/upload', () => {
     expect(res.status).toBe(200);
     expect(runVoxelPipelineMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        brickerEngine: 'stability_v2',
+        brickerEngine: 'v2_tree_repair',
         shadowCompare: true,
       }),
     );

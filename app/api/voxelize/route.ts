@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
-import { analyzeBrickGraph, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
+import { analyzeBrickGraph, buildBrickGraph, summarizeGraphDiagnosticBrickIds, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
+import { BRICKER_VARIANTS, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const VoxelRequestSchema = z.object({
   meshPath: z.string().optional(),
@@ -17,7 +18,7 @@ const VoxelRequestSchema = z.object({
   name: z.string().default('Generated Build'),
   description: z.string().default('LEGO build generated from 3D model'),
   shell: z.boolean().default(true),
-  brickerEngine: z.enum(['legacy', 'stability_v2']).default('legacy'),
+  brickerEngine: z.enum(BRICKER_VARIANTS).default('legacy'),
   shadowCompare: z.boolean().default(false),
 });
 
@@ -37,10 +38,12 @@ function buildDiagnostics(
   grid: string[][][],
   totalBricks: number,
   shell: boolean,
-  brickerEngine: 'legacy' | 'stability_v2',
+  brickerEngine: BrickerVariant,
   bricks: ReturnType<typeof voxelGridToBrickModel>['bricks'],
   stabilityV2?: StabilityV2Stats,
 ) {
+  const graph = buildBrickGraph(bricks);
+  const graphDiagnostics = analyzeBrickGraph(graph);
   return {
     pipeline: 'brickforge-v3',
     timingMs: Date.now() - startedAt,
@@ -50,10 +53,11 @@ function buildDiagnostics(
     totalBricks,
     shelled: shell,
     brickerEngine,
-    layout: summarizeGraphDiagnostics(analyzeBrickGraph(bricks), {
+    layout: summarizeGraphDiagnostics(graphDiagnostics, {
       internalSupportBricks: stabilityV2?.internalSupport?.internalSupportBricks ?? 0,
       internalSupportVoxels: stabilityV2?.internalSupport?.internalSupportVoxels ?? 0,
     }),
+    layoutIds: summarizeGraphDiagnosticBrickIds(graphDiagnostics, graph, stabilityV2?.oracleFailureBrickIds ?? []),
     ...(stabilityV2 ? { stabilityV2 } : {}),
   };
 }
@@ -82,8 +86,8 @@ export async function POST(req: NextRequest) {
       logGrid(grid, colorLegend);
 
       const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-      const model = brickerEngine === 'stability_v2'
-        ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell })
+      const model = isStabilityV2Variant(brickerEngine)
+        ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell, variant: brickerEngine })
         : voxelGridToBrickModel(voxelGrid, name, description, { shell });
 
       return NextResponse.json({

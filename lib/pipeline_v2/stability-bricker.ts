@@ -9,13 +9,20 @@ import { refineStability, type RefinementStats } from '@/lib/pipeline/stability-
 import { buildLayerOwners, solveLayer, type SolvedBrick } from './layer-solver';
 import { repairStabilityV2, type InternalSupportStats, type RepairStats } from './repair';
 import { analyzeBrickGraph, summarizeGraphDiagnostics, type GraphDiagnosticsSummary } from './brick-graph';
+import { runPhysicsOracle, type PhysicsOracleResult } from './physics-oracle';
+import type { StabilityV2Variant } from './variants';
 
-interface StabilityV2Options {
+export interface StabilityV2Options {
   shell?: boolean;
   refine?: boolean;
   beamWidth?: number;
   repair?: boolean;
   deepRepair?: boolean;
+  variant?: StabilityV2Variant;
+  useCandidateMasks?: boolean;
+  repairMode?: 'local' | 'tree';
+  scoreMode?: 'weighted' | 'lexicographic';
+  oracle?: boolean;
 }
 
 interface Dims {
@@ -34,14 +41,23 @@ interface PreparedGrid {
 
 export interface StabilityV2Stats {
   engine: 'stability_v2';
+  variant: StabilityV2Variant;
   layersSolved: number;
   candidateBranches: number;
+  candidateCount: number;
+  candidateMaskMs: number;
+  maskCheckedPlacements: number;
   fallbackPlacements: number;
   finalLayerCost: number;
   initialLayout?: GraphDiagnosticsSummary;
   finalLayout?: GraphDiagnosticsSummary;
   repair?: RepairStats;
   internalSupport?: InternalSupportStats;
+  oracleInitial?: PhysicsOracleResult;
+  oracleFinal?: PhysicsOracleResult;
+  oracleCheckedRegions?: number;
+  oracleFailures?: number;
+  oracleFailureBrickIds?: string[];
   refinement?: RefinementStats;
 }
 
@@ -49,6 +65,32 @@ const WILDCARD = '*';
 const DX = [1, -1, 0, 0, 0, 0];
 const DY = [0, 0, 1, -1, 0, 0];
 const DZ = [0, 0, 0, 0, 1, -1];
+
+function optionsForVariant(options: StabilityV2Options): Required<Pick<StabilityV2Options,
+  'variant' | 'useCandidateMasks' | 'repairMode' | 'scoreMode' | 'oracle'
+>> {
+  const variant = options.variant ?? 'stability_v2';
+  const defaults = {
+    stability_v2: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'weighted', oracle: false },
+    v2_masks: { useCandidateMasks: true, repairMode: 'local', scoreMode: 'weighted', oracle: false },
+    v2_tree_repair: { useCandidateMasks: false, repairMode: 'tree', scoreMode: 'weighted', oracle: false },
+    v2_lexicographic: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'lexicographic', oracle: false },
+    v2_oracle: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'weighted', oracle: true },
+  } satisfies Record<StabilityV2Variant, {
+    useCandidateMasks: boolean;
+    repairMode: 'local' | 'tree';
+    scoreMode: 'weighted' | 'lexicographic';
+    oracle: boolean;
+  }>;
+
+  return {
+    variant,
+    useCandidateMasks: options.useCandidateMasks ?? defaults[variant].useCandidateMasks,
+    repairMode: options.repairMode ?? defaults[variant].repairMode,
+    scoreMode: options.scoreMode ?? defaults[variant].scoreMode,
+    oracle: options.oracle ?? defaults[variant].oracle,
+  };
+}
 
 function dims(grid: string[][][]): Dims {
   const sx = grid.length;
@@ -238,18 +280,22 @@ function toBrickInstances(placed: SolvedBrick[], d: Dims): BrickInstance[] {
     studDepth: b.d,
     color: b.color,
     step: b.z + 1,
-    metadata: { gx: b.x, gy: b.z, gz: b.y, gw: b.w, gd: b.d },
+    metadata: { gx: b.x, gy: b.z, gz: b.y, gw: b.w, gd: b.d, internalSupport: b.internalSupport },
   }));
 }
 
 function buildLayers(
   prepared: PreparedGrid,
   colorLegend: Record<string, string>,
+  variantOptions: ReturnType<typeof optionsForVariant>,
   beamWidth?: number,
 ): { layers: SolvedBrick[][]; stats: StabilityV2Stats } {
   const layers: SolvedBrick[][] = [];
   let belowOwners = new Map<string, string>();
   let candidateBranches = 0;
+  let candidateCount = 0;
+  let candidateMaskMs = 0;
+  let maskCheckedPlacements = 0;
   let fallbackPlacements = 0;
   let finalLayerCost = 0;
 
@@ -260,13 +306,18 @@ function buildLayers(
       colorLegend,
       wildcardColors: prepared.wildcardColors,
       surfaceCells: prepared.surfaceCells,
+      supportOptionalCells: prepared.supportOptionalCells,
       belowOwners,
       nextGrid: prepared.grid,
+      useCandidateMasks: variantOptions.useCandidateMasks,
       beamWidth,
     });
     layers.push(result.bricks);
     belowOwners = buildLayerOwners(result.bricks);
     candidateBranches += result.stats.candidateBranches;
+    candidateCount += result.stats.candidateCount;
+    candidateMaskMs += result.stats.candidateMaskMs;
+    maskCheckedPlacements += result.stats.maskCheckedPlacements;
     fallbackPlacements += result.stats.fallbackPlacements;
     finalLayerCost += result.stats.finalCost;
   }
@@ -275,8 +326,12 @@ function buildLayers(
     layers,
     stats: {
       engine: 'stability_v2',
+      variant: variantOptions.variant,
       layersSolved: layers.length,
       candidateBranches,
+      candidateCount,
+      candidateMaskMs,
+      maskCheckedPlacements,
       fallbackPlacements,
       finalLayerCost,
     },
@@ -292,11 +347,14 @@ export function voxelGridToBrickModelV2(
   const shellEnabled = options.shell ?? DEFAULT_SHELL_ENABLED;
   const refineEnabled = options.refine ?? true;
   const repairEnabled = options.repair ?? true;
+  const variantOptions = optionsForVariant(options);
   const prepared = prepareGrid(voxelGrid, shellEnabled);
-  const { layers: initialLayers, stats } = buildLayers(prepared, voxelGrid.colorLegend, options.beamWidth);
+  const { layers: initialLayers, stats } = buildLayers(prepared, voxelGrid.colorLegend, variantOptions, options.beamWidth);
 
   let layers = initialLayers;
-  stats.initialLayout = summarizeGraphDiagnostics(analyzeBrickGraph(toBrickInstances(layers.flat(), prepared.dims)));
+  const initialBricks = toBrickInstances(layers.flat(), prepared.dims);
+  stats.initialLayout = summarizeGraphDiagnostics(analyzeBrickGraph(initialBricks));
+  if (variantOptions.oracle) stats.oracleInitial = runPhysicsOracle(initialBricks);
 
   let refinementStats: RefinementStats | undefined;
   if (refineEnabled) {
@@ -313,7 +371,11 @@ export function voxelGridToBrickModelV2(
       wildcardColors: prepared.wildcardColors,
       surfaceCells: prepared.surfaceCells,
       supportOptionalCells: prepared.supportOptionalCells,
-    }, { deep: options.deepRepair });
+    }, {
+      deep: options.deepRepair,
+      repairMode: variantOptions.repairMode,
+      scoreMode: variantOptions.scoreMode,
+    });
     layers = repaired.layers;
     stats.repair = repaired.repair;
     stats.internalSupport = repaired.internalSupport;
@@ -328,8 +390,14 @@ export function voxelGridToBrickModelV2(
       internalSupportVoxels: stats.internalSupport?.internalSupportVoxels ?? 0,
     },
   );
+  if (variantOptions.oracle) {
+    stats.oracleFinal = runPhysicsOracle(bricks);
+    stats.oracleCheckedRegions = (stats.oracleInitial?.checkedRegions ?? 0) + stats.oracleFinal.checkedRegions;
+    stats.oracleFailures = stats.oracleFinal.failures.length;
+    stats.oracleFailureBrickIds = stats.oracleFinal.failureBrickIds;
+  }
 
-  console.log(`[pipeline:v2] ${allBricks.length} bricks, ${stats.candidateBranches} candidates explored`);
+  console.log(`[pipeline:v2:${stats.variant}] ${allBricks.length} bricks, ${stats.candidateBranches} candidates explored`);
 
   return {
     name,

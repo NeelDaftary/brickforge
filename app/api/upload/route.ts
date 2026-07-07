@@ -7,6 +7,7 @@ import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
 import { SUPPORTED_UPLOAD_FORMATS_LABEL } from '@/lib/pipeline/mesh-formats';
 import { assertSupportedMeshUpload, safeUploadedMeshName } from '@/lib/pipeline/mesh-upload';
+import { isBrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
@@ -19,7 +20,7 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
  * - objectName (optional): Blender object name
  * - name (optional): build name
  * - shell (optional): boolean, default true
- * - brickerEngine (optional): legacy | stability_v2
+ * - brickerEngine (optional): legacy | stability_v2 | v2_masks | v2_tree_repair | v2_lexicographic | v2_oracle
  * - shadowCompare (optional): boolean, default false
  */
 export async function POST(req: NextRequest) {
@@ -53,7 +54,7 @@ export async function POST(req: NextRequest) {
     const name = (formData.get('name') as string) || safeFileName.replace(/\.\w+$/, '');
     const shell = (formData.get('shell') as string) !== 'false';
     const rawBrickerEngine = formData.get('brickerEngine') as string | null;
-    const brickerEngine = rawBrickerEngine === 'stability_v2' ? 'stability_v2' : 'legacy';
+    const brickerEngine = rawBrickerEngine && isBrickerVariant(rawBrickerEngine) ? rawBrickerEngine : 'legacy';
     const shadowCompare = (formData.get('shadowCompare') as string) === 'true';
 
     const meshBytes = Buffer.from(await meshFile.arrayBuffer());

@@ -32,6 +32,7 @@ export interface BrickInstance {
   metadata?: {
     gx?: number; gy?: number; gz?: number; // Grid origin
     gw?: number; gd?: number;              // Grid extent (studs)
+    internalSupport?: boolean;
   };
 }
 
@@ -42,4 +43,3 @@ export interface BrickModelData {
   bricks: BrickInstance[];
   voxelData?: VoxelData;
 }
-

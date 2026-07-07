@@ -60,4 +60,22 @@ describe('solveLayer', () => {
     expect(coveredStuds).toBe(2);
     expect(result.bricks.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('uses candidate masks without hard-rejecting structurally useful mixed-color placements', () => {
+    const grid = gridFromLayer([['R', 'B']]);
+    const result = solveLayer({
+      grid,
+      z: 0,
+      colorLegend: { R: '#DB0000', B: '#0059CF' },
+      wildcardColors: new Map(),
+      surfaceCells: new Set(['0,0,0', '1,0,0']),
+      belowOwners: new Map(),
+      useCandidateMasks: true,
+    });
+
+    expect(result.bricks).toHaveLength(1);
+    expect(result.bricks[0]).toMatchObject({ x: 0, y: 0, z: 0, w: 2, d: 1 });
+    expect(result.stats.candidateMaskMs).toBeGreaterThanOrEqual(0);
+    expect(result.stats.maskCheckedPlacements).toBeGreaterThan(0);
+  });
 });

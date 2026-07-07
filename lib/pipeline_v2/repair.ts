@@ -1,13 +1,18 @@
 import type { BrickInstance } from '@/lib/engine/types';
 import {
   analyzeBrickGraph,
+  buildAttachmentTree,
   buildBrickGraph,
+  descendantIds,
+  rankWeakRegions,
   scoreGraphDiagnostics,
   summarizeGraphDiagnostics,
   type GraphBrick,
   type GraphDiagnosticsSummary,
+  type WeakRegionDiagnostic,
 } from './brick-graph';
 import { solveLayer, type SolvedBrick } from './layer-solver';
+import { compareStabilityScores, scoreSummaryLexicographically, type LexicographicStabilityScore } from './stability-score';
 
 export interface RepairGridContext {
   grid: string[][][];
@@ -24,6 +29,8 @@ export interface RepairStats {
   before: GraphDiagnosticsSummary;
   after: GraphDiagnosticsSummary;
   elapsedMs: number;
+  repairPatchType?: 'local' | 'tree' | 'support_column';
+  repairAcceptedBy?: 'weighted' | 'lexicographic';
 }
 
 export interface InternalSupportStats {
@@ -47,6 +54,7 @@ interface Patch {
   maxZ: number;
   reason: string;
   defectBrickId: string;
+  patchType: 'local' | 'tree';
 }
 
 const PATCH_RADIUS_XY = 3;
@@ -91,16 +99,17 @@ function solvedToInstances(layers: SolvedBrick[][]): BrickInstance[] {
     studDepth: brick.d,
     color: brick.color,
     step: brick.z + 1,
-    metadata: { gx: brick.x, gy: brick.z, gz: brick.y, gw: brick.w, gd: brick.d },
+    metadata: { gx: brick.x, gy: brick.z, gz: brick.y, gw: brick.w, gd: brick.d, internalSupport: brick.internalSupport },
   }));
 }
 
-function scoreLayers(layers: SolvedBrick[][]): { score: number; summary: GraphDiagnosticsSummary } {
+function scoreLayers(layers: SolvedBrick[][]): { score: number; summary: GraphDiagnosticsSummary; lexicographic: LexicographicStabilityScore } {
   const diagnostics = analyzeBrickGraph(solvedToInstances(layers));
   const summary = summarizeGraphDiagnostics(diagnostics);
   return {
     summary,
     score: scoreGraphDiagnostics({ ...summary, brickCount: diagnostics.brickCount }),
+    lexicographic: scoreSummaryLexicographically(summary, diagnostics.brickCount),
   };
 }
 
@@ -109,9 +118,14 @@ function findGraphBrick(layers: SolvedBrick[][], brickId: string): GraphBrick | 
   return graph.bricks.find((brick) => brick.id === brickId);
 }
 
-function chooseDefect(layers: SolvedBrick[][]): { brick: GraphBrick; reason: string } | null {
+function chooseDefect(layers: SolvedBrick[][]): { brick: GraphBrick; reason: string; region?: WeakRegionDiagnostic } | null {
   const graph = buildBrickGraph(solvedToInstances(layers));
   const diagnostics = analyzeBrickGraph(graph);
+  const region = rankWeakRegions(graph, diagnostics)[0];
+  if (region) {
+    const brick = graph.bricks.find((candidate) => candidate.id === region.primaryBrickId);
+    if (brick) return { brick, reason: region.defectType, region };
+  }
   const load = diagnostics.loadAbove;
 
   const byLoad = (ids: Iterable<string>) =>
@@ -141,7 +155,16 @@ function chooseDefect(layers: SolvedBrick[][]): { brick: GraphBrick; reason: str
   return null;
 }
 
-function patchFor(defect: { brick: GraphBrick; reason: string }, dims: { sx: number; sy: number; sz: number }): Patch {
+function patchFor(
+  layers: SolvedBrick[][],
+  defect: { brick: GraphBrick; reason: string; region?: WeakRegionDiagnostic },
+  dims: { sx: number; sy: number; sz: number },
+  mode: 'local' | 'tree',
+): Patch {
+  if (mode === 'tree' && defect.region) {
+    return treePatchFor(layers, { ...defect, region: defect.region }, dims);
+  }
+
   const { brick } = defect;
   return {
     minX: Math.max(0, brick.x - PATCH_RADIUS_XY),
@@ -152,6 +175,50 @@ function patchFor(defect: { brick: GraphBrick; reason: string }, dims: { sx: num
     maxZ: Math.min(dims.sz - 1, brick.z + PATCH_RADIUS_Z),
     reason: defect.reason,
     defectBrickId: brick.id,
+    patchType: 'local',
+  };
+}
+
+function treePatchFor(
+  layers: SolvedBrick[][],
+  defect: { brick: GraphBrick; reason: string; region: WeakRegionDiagnostic },
+  dims: { sx: number; sy: number; sz: number },
+): Patch {
+  const graph = buildBrickGraph(solvedToInstances(layers));
+  const tree = buildAttachmentTree(graph);
+  const relevantIds = new Set<string>([defect.brick.id]);
+  for (const id of descendantIds(tree, defect.brick.id)) relevantIds.add(id);
+  const parent = tree.parentByBrickId.get(defect.brick.id);
+  if (parent && parent !== '__root__') relevantIds.add(parent);
+
+  let minX = defect.brick.x;
+  let maxX = defect.brick.x + defect.brick.w - 1;
+  let minY = defect.brick.y;
+  let maxY = defect.brick.y + defect.brick.d - 1;
+  let minZ = defect.brick.z;
+  let maxZ = defect.brick.z;
+
+  for (const brick of graph.bricks) {
+    if (!relevantIds.has(brick.id)) continue;
+    minX = Math.min(minX, brick.x);
+    maxX = Math.max(maxX, brick.x + brick.w - 1);
+    minY = Math.min(minY, brick.y);
+    maxY = Math.max(maxY, brick.y + brick.d - 1);
+    minZ = Math.min(minZ, brick.z);
+    maxZ = Math.max(maxZ, brick.z);
+  }
+
+  const radius = defect.region.suggestedRepairRadius;
+  return {
+    minX: Math.max(0, minX - radius.xy),
+    maxX: Math.min(dims.sx - 1, maxX + radius.xy),
+    minY: Math.max(0, minY - radius.xy),
+    maxY: Math.min(dims.sy - 1, maxY + radius.xy),
+    minZ: Math.max(0, minZ - radius.z),
+    maxZ: Math.min(dims.sz - 1, maxZ + radius.z),
+    reason: defect.reason,
+    defectBrickId: defect.brick.id,
+    patchType: 'tree',
   };
 }
 
@@ -207,7 +274,7 @@ function addAnchoredSupportColumn(
           viable = false;
           break;
         }
-        additions.push({ x, y, z, w: 1, d: 1, color: supportColor(cellKey, context) });
+        additions.push({ x, y, z, w: 1, d: 1, color: supportColor(cellKey, context), internalSupport: true });
       }
 
       if (!viable || additions.length === 0) continue;
@@ -319,7 +386,7 @@ function solvePatch(
 export function repairStabilityV2(
   initialLayers: SolvedBrick[][],
   context: RepairGridContext,
-  options: { deep?: boolean } = {},
+  options: { deep?: boolean; repairMode?: 'local' | 'tree'; scoreMode?: 'weighted' | 'lexicographic' } = {},
 ): RepairResult {
   const startedAt = Date.now();
   const dims = {
@@ -328,43 +395,75 @@ export function repairStabilityV2(
     sz: context.grid[0]?.[0]?.length ?? 0,
   };
   const maxIterations = options.deep ? DEEP_MAX_ITERATIONS : NORMAL_MAX_ITERATIONS;
+  const repairMode = options.repairMode ?? 'local';
+  const scoreMode = options.scoreMode ?? 'weighted';
   let layers = cloneLayers(initialLayers);
   const before = scoreLayers(layers);
   let currentScore = before.score;
+  let currentLexicographic = before.lexicographic;
   let acceptedPatches = 0;
   let rejectedPatches = 0;
   let internalSupportVoxels = 0;
   let supportAddedReason: string | undefined;
+  let repairPatchType: RepairStats['repairPatchType'];
 
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     const defect = chooseDefect(layers);
     if (!defect) break;
 
-    const patch = patchFor(defect, dims);
-    const candidates: Array<{ layers: SolvedBrick[][]; addedSupportVoxels: number }> = [];
+    const patches = repairMode === 'tree' && defect.region
+      ? [patchFor(layers, defect, dims, 'tree'), patchFor(layers, defect, dims, 'local')]
+      : [patchFor(layers, defect, dims, repairMode)];
+    const candidates: Array<{
+      layers: SolvedBrick[][];
+      addedSupportVoxels: number;
+      patchType: RepairStats['repairPatchType'];
+      patchReason: string;
+    }> = [];
 
     if (defect.reason === 'floating' || defect.reason === 'unsupported') {
       const supported = addAnchoredSupportColumn(layers, defect.brick, context);
-      if (supported) candidates.push(supported);
+      if (supported) candidates.push({ ...supported, patchType: 'support_column', patchReason: defect.reason });
     }
 
-    const patchCandidate = solvePatch(layers, patch, context, dims);
-    if (patchCandidate) candidates.push(patchCandidate);
+    for (const patch of patches) {
+      const patchCandidate = solvePatch(layers, patch, context, dims);
+      if (patchCandidate) candidates.push({ ...patchCandidate, patchType: patch.patchType, patchReason: patch.reason });
+    }
 
-    let bestCandidate: { layers: SolvedBrick[][]; addedSupportVoxels: number; score: number } | null = null;
+    let bestCandidate: {
+      layers: SolvedBrick[][];
+      addedSupportVoxels: number;
+      patchType: RepairStats['repairPatchType'];
+      patchReason: string;
+      score: number;
+      lexicographic: LexicographicStabilityScore;
+    } | null = null;
     for (const candidate of candidates) {
-      const score = scoreLayers(candidate.layers).score;
-      if (score >= currentScore) continue;
-      if (!bestCandidate || score < bestCandidate.score) bestCandidate = { ...candidate, score };
+      const scored = scoreLayers(candidate.layers);
+      const improves = scoreMode === 'lexicographic'
+        ? compareStabilityScores(scored.lexicographic, currentLexicographic) < 0
+        : scored.score < currentScore;
+      if (!improves) continue;
+      if (!bestCandidate) {
+        bestCandidate = { ...candidate, score: scored.score, lexicographic: scored.lexicographic };
+        continue;
+      }
+      const better = scoreMode === 'lexicographic'
+        ? compareStabilityScores(scored.lexicographic, bestCandidate.lexicographic) < 0
+        : scored.score < bestCandidate.score;
+      if (better) bestCandidate = { ...candidate, score: scored.score, lexicographic: scored.lexicographic };
     }
 
     if (bestCandidate) {
       layers = bestCandidate.layers;
       currentScore = bestCandidate.score;
+      currentLexicographic = bestCandidate.lexicographic;
+      repairPatchType = bestCandidate.patchType;
       acceptedPatches++;
       if (bestCandidate.addedSupportVoxels > 0) {
         internalSupportVoxels += bestCandidate.addedSupportVoxels;
-        supportAddedReason = patch.reason;
+        supportAddedReason = bestCandidate.patchReason;
       }
     } else {
       rejectedPatches++;
@@ -382,6 +481,8 @@ export function repairStabilityV2(
       before: before.summary,
       after,
       elapsedMs: Date.now() - startedAt,
+      ...(repairPatchType ? { repairPatchType } : {}),
+      repairAcceptedBy: scoreMode,
     },
     internalSupport: {
       internalSupportBricks: internalSupportVoxels,

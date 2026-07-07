@@ -2,6 +2,7 @@
 
 import { useMemo } from 'react';
 import type { BrickInstance, BrickModelData } from '@/lib/engine/types';
+import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
 import type { EditTool } from './EditToolbar';
 import { BrickMesh } from './BrickMesh';
 import { CameraControls } from './CameraControls';
@@ -43,6 +44,8 @@ interface BrickSceneProps {
   showAdjacentLayers?: boolean;
   unstableCells?: Set<string>;
   marginalCells?: Set<string>;
+  diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
+  diagnosticOverlayMode?: 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
 }
 
 export function BrickScene({
@@ -60,6 +63,8 @@ export function BrickScene({
   showAdjacentLayers = true,
   unstableCells,
   marginalCells,
+  diagnosticBrickIds,
+  diagnosticOverlayMode = 'off',
 }: BrickSceneProps) {
   // Layer view only applies to add/erase — paint mode shows all layers
   const hasLayerView = editMode && activeLayer != null && editTool !== 'paint';
@@ -68,6 +73,14 @@ export function BrickScene({
   const extent = useMemo(() => computeModelExtent(model), [model]);
   const gridSize = Math.max(30, Math.ceil(extent * 1.5 / 2) * 2); // round up to even, at least 30
   const planeSize = gridSize * 2;
+  const selectedDiagnosticIds = useMemo(() => {
+    if (diagnosticOverlayMode === 'auto' || diagnosticOverlayMode === 'off') return new Set<string>();
+    return new Set(diagnosticBrickIds?.[diagnosticOverlayMode as keyof GraphDiagnosticBrickIds] ?? []);
+  }, [diagnosticBrickIds, diagnosticOverlayMode]);
+  const dangerousDiagnosticOverlay = diagnosticOverlayMode === 'floating' ||
+    diagnosticOverlayMode === 'unsupported' ||
+    diagnosticOverlayMode === 'weakCantilever' ||
+    diagnosticOverlayMode === 'oracle';
 
   return (
     <>
@@ -112,8 +125,9 @@ export function BrickScene({
 
         // Stability flags
         const cellKey = brickGz != null ? `${brick.metadata!.gx},${brick.metadata!.gy},${brickGz}` : '';
-        const unstable = (editMode && unstableCells?.has(cellKey)) || false;
-        const marginal = (editMode && marginalCells?.has(cellKey)) || false;
+        const diagnosticHit = selectedDiagnosticIds.has(brick.id);
+        const unstable = (editMode && unstableCells?.has(cellKey)) || (diagnosticHit && dangerousDiagnosticOverlay);
+        const marginal = (editMode && marginalCells?.has(cellKey)) || (diagnosticHit && !dangerousDiagnosticOverlay);
 
         return (
           <BrickMesh

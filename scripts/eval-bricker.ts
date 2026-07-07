@@ -4,14 +4,13 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
-import { voxelGridToBrickModelV2 } from '@/lib/pipeline_v2/stability-bricker';
+import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
 import { analyzeBrickGraph, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
+import { BRICKER_VARIANTS, isBrickerVariant, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 import type { BrickModelData, VoxelData } from '@/lib/engine/types';
 
-type EngineName = 'legacy' | 'stability_v2';
-
 export interface EvalOptions {
-  engines: EngineName[];
+  engines: BrickerVariant[];
   shell: boolean;
   json: boolean;
   verbose: boolean;
@@ -21,7 +20,8 @@ export interface EvalOptions {
 
 export interface EvalRow {
   file: string;
-  engine: EngineName | 'existing';
+  engine: BrickerVariant | 'existing';
+  variant: BrickerVariant | 'existing';
   voxels: number;
   bricks: number;
   compression: number;
@@ -40,11 +40,18 @@ export interface EvalRow {
   maxSeamRun: number;
   gateStatus: 'pass' | 'warn' | 'fail';
   healthScore: number;
+  candidateCount: number;
+  candidateMaskMs: number;
+  repairPatchType: string | null;
+  repairAcceptedBy: string | null;
+  oracleCheckedRegions: number;
+  oracleFailures: number;
+  readinessStatus: 'ready' | 'prototype' | 'needs_repair';
 }
 
 function usage(): never {
   console.error([
-    'Usage: npx tsx scripts/eval-bricker.ts <model-or-voxels.json> [...] [--engines legacy,stability_v2] [--shell false] [--json] [--verbose] [--deep]',
+    `Usage: npx tsx scripts/eval-bricker.ts <model-or-voxels.json> [...] [--engines ${BRICKER_VARIANTS.join(',')}] [--shell false] [--json] [--verbose] [--deep]`,
     '',
     'Accepts .brickforge.json model files with voxelData or raw voxel grid JSON:',
     '  { "grid": ..., "color_legend": ... }',
@@ -76,9 +83,9 @@ export function parseArgs(argv: string[]): EvalOptions {
       options.shell = value === 'true';
     } else if (arg === '--engines') {
       const value = argv[++i];
-      const engines = value?.split(',') as EngineName[] | undefined;
-      if (!engines?.length || engines.some((engine) => engine !== 'legacy' && engine !== 'stability_v2')) usage();
-      options.engines = engines;
+      const engines = value === 'all' ? [...BRICKER_VARIANTS] : value?.split(',');
+      if (!engines?.length || engines.some((engine) => !isBrickerVariant(engine))) usage();
+      options.engines = engines as BrickerVariant[];
     } else if (arg.startsWith('--')) {
       usage();
     } else {
@@ -88,6 +95,26 @@ export function parseArgs(argv: string[]): EvalOptions {
 
   if (options.files.length === 0) usage();
   return options;
+}
+
+function prototypeUnsupportedLimit(totalBricks: number): number {
+  if (totalBricks < 100) return Math.max(1, Math.ceil(totalBricks * 0.05));
+  return Math.min(10, Math.max(5, Math.ceil(totalBricks * 0.015)));
+}
+
+function prototypeWeakLimit(totalBricks: number): number {
+  if (totalBricks < 100) return Math.max(2, Math.ceil(totalBricks * 0.08));
+  return Math.min(20, Math.max(8, Math.ceil(totalBricks * 0.03)));
+}
+
+function readinessStatus(layout: ReturnType<typeof summarizeGraphDiagnostics>, totalBricks: number): EvalRow['readinessStatus'] {
+  if (layout.floatingBricks > 0) return 'needs_repair';
+  if (layout.unsupportedBricks === 0 && layout.weakCantilevers === 0) return 'ready';
+  if (
+    layout.unsupportedBricks <= prototypeUnsupportedLimit(totalBricks) &&
+    layout.weakCantilevers <= prototypeWeakLimit(totalBricks)
+  ) return 'prototype';
+  return 'needs_repair';
 }
 
 function deriveGridSize(grid: string[][][]): number {
@@ -192,9 +219,11 @@ function rowForModel(
 ): EvalRow {
   const layout = summarizeGraphDiagnostics(analyzeBrickGraph(model.bricks));
   const coverage = brickCoverage(model, voxelGrid, validateAgainstVoxels);
+  const stabilityV2 = (model as BrickModelData & { stabilityV2Stats?: StabilityV2Stats }).stabilityV2Stats;
   return {
     file,
     engine,
+    variant: engine,
     voxels,
     bricks: model.totalBricks,
     compression: model.totalBricks === 0 ? 0 : Number((voxels / model.totalBricks).toFixed(2)),
@@ -211,6 +240,13 @@ function rowForModel(
     maxSeamRun: layout.seamAlignment.maxVerticalRun,
     gateStatus: layout.gateStatus,
     healthScore: layout.healthScore,
+    candidateCount: stabilityV2?.candidateCount ?? 0,
+    candidateMaskMs: stabilityV2?.candidateMaskMs ?? 0,
+    repairPatchType: stabilityV2?.repair?.repairPatchType ?? null,
+    repairAcceptedBy: stabilityV2?.repair?.repairAcceptedBy ?? null,
+    oracleCheckedRegions: stabilityV2?.oracleCheckedRegions ?? 0,
+    oracleFailures: stabilityV2?.oracleFailures ?? 0,
+    readinessStatus: readinessStatus(layout, model.totalBricks),
   };
 }
 
@@ -258,11 +294,12 @@ export async function evaluateFile(filePath: string, options: EvalOptions): Prom
   for (const engine of options.engines) {
     const startedAt = Date.now();
     const model = runQuietly(options.verbose, () => (
-      engine === 'legacy'
+      !isStabilityV2Variant(engine)
         ? voxelGridToBrickModel(voxelGrid, file.replace(/\.\w+$/, ''), `Eval build for ${file}`, { shell: options.shell })
         : voxelGridToBrickModelV2(voxelGrid, file.replace(/\.\w+$/, ''), `Eval build for ${file}`, {
           shell: options.shell,
           deepRepair: options.deepRepair,
+          variant: engine,
         })
     ));
     rows.push(rowForModel(file, engine, voxels, model, Date.now() - startedAt, voxelGrid, !options.shell));
@@ -290,6 +327,10 @@ export function printTable(rows: EvalRow[]): void {
     bridges: row.bridgeEdges,
     repeatedSeams: row.repeatedSeams,
     maxSeamRun: row.maxSeamRun,
+    candidates: row.candidateCount,
+    maskMs: row.candidateMaskMs,
+    oracleFailures: row.oracleFailures,
+    readiness: row.readinessStatus,
     gate: row.gateStatus,
   })));
 }

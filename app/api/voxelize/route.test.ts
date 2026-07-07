@@ -131,6 +131,32 @@ describe('POST /api/voxelize', () => {
     expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledTimes(1);
   });
 
+  it('passes experimental v2 variants through voxelData requests', async () => {
+    voxelGridToBrickModelV2Mock.mockReturnValue({
+      name: 'Generated Build',
+      description: 'LEGO build generated from 3D model',
+      totalBricks: 2,
+      bricks: [],
+    });
+
+    const res = await POST(makeReq({
+      brickerEngine: 'v2_masks',
+      voxelData: {
+        grid: [[['R']], [['R']]],
+        color_legend: { R: '#DB0000' },
+      },
+    }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.diagnostics.brickerEngine).toBe('v2_masks');
+    expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledWith(
+      expect.any(Object),
+      'Generated Build',
+      'LEGO build generated from 3D model',
+      expect.objectContaining({ shell: true, variant: 'v2_masks' }),
+    );
+  });
+
   it('passes meshPath through runVoxelPipeline', async () => {
     runVoxelPipelineMock.mockResolvedValueOnce({
       model: {

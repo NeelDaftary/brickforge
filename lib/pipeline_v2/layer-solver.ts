@@ -1,4 +1,5 @@
 import { BRICK_SIZES } from '@/lib/pipeline/voxel-to-bricks';
+import { buildCandidateMaskIndex, type CandidateMaskIndex, type CandidateMaskPlacement } from './candidate-masks';
 
 export interface SolvedBrick {
   x: number;
@@ -7,6 +8,7 @@ export interface SolvedBrick {
   w: number;
   d: number;
   color: string;
+  internalSupport?: boolean;
 }
 
 export interface LayerSolveInput {
@@ -16,7 +18,9 @@ export interface LayerSolveInput {
   wildcardColors: ReadonlyMap<string, string>;
   surfaceCells: ReadonlySet<string>;
   belowOwners: ReadonlyMap<string, string>;
+  supportOptionalCells?: ReadonlySet<string>;
   nextGrid?: string[][][];
+  useCandidateMasks?: boolean;
   beamWidth?: number;
   maxCandidatesPerCell?: number;
 }
@@ -28,6 +32,9 @@ export interface LayerSolveResult {
     candidateBranches: number;
     fallbackPlacements: number;
     finalCost: number;
+    candidateCount: number;
+    candidateMaskMs: number;
+    maskCheckedPlacements: number;
   };
 }
 
@@ -217,7 +224,12 @@ function generateCandidatesForCell(
   anchorX: number,
   anchorY: number,
   covered: ReadonlySet<string>,
+  maskIndex?: CandidateMaskIndex,
 ): Candidate[] {
+  if (input.useCandidateMasks && maskIndex) {
+    return generateMaskedCandidatesForCell(input, anchorX, anchorY, covered, maskIndex);
+  }
+
   const { sx, sy } = dims(input.grid);
   const candidates: Candidate[] = [];
 
@@ -267,6 +279,50 @@ function generateCandidatesForCell(
   return candidates.slice(0, input.maxCandidatesPerCell ?? DEFAULT_MAX_CANDIDATES_PER_CELL);
 }
 
+function generateMaskedCandidatesForCell(
+  input: LayerSolveInput,
+  anchorX: number,
+  anchorY: number,
+  covered: ReadonlySet<string>,
+  maskIndex: CandidateMaskIndex,
+): Candidate[] {
+  const candidates: Candidate[] = [];
+  const placements = maskIndex.placementsByCell.get(key(anchorX, anchorY)) ?? [];
+
+  for (const placement of placements) {
+    if (placement.cells.some((cell) => covered.has(cell))) continue;
+
+    const { color, mismatchCount, visibleCount } = candidateColor(
+      input.grid,
+      placement.cells,
+      input.z,
+      input.colorLegend,
+      input.wildcardColors,
+      input.surfaceCells,
+    );
+    const candidate = placementToCandidate(input.z, placement, color);
+    candidates.push({
+      ...candidate,
+      cost: candidateCost(candidate, mismatchCount, visibleCount, input.belowOwners, input.nextGrid),
+    });
+  }
+
+  candidates.sort((a, b) => a.cost - b.cost || b.w * b.d - a.w * a.d);
+  return candidates.slice(0, input.maxCandidatesPerCell ?? DEFAULT_MAX_CANDIDATES_PER_CELL);
+}
+
+function placementToCandidate(z: number, placement: CandidateMaskPlacement, color: string): Omit<Candidate, 'cost'> {
+  return {
+    x: placement.x,
+    y: placement.y,
+    z,
+    w: placement.w,
+    d: placement.d,
+    color,
+    cells: placement.cells,
+  };
+}
+
 function filledLayerCells(grid: string[][][], z: number): string[] {
   const { sx, sy } = dims(grid);
   const cells: string[] = [];
@@ -299,12 +355,33 @@ function firstUncovered(
 export function solveLayer(input: LayerSolveInput): LayerSolveResult {
   const cells = filledLayerCells(input.grid, input.z);
   if (cells.length === 0) {
-    return { bricks: [], stats: { filledCells: 0, candidateBranches: 0, fallbackPlacements: 0, finalCost: 0 } };
+    return {
+      bricks: [],
+      stats: {
+        filledCells: 0,
+        candidateBranches: 0,
+        fallbackPlacements: 0,
+        finalCost: 0,
+        candidateCount: 0,
+        candidateMaskMs: 0,
+        maskCheckedPlacements: 0,
+      },
+    };
   }
 
+  const maskIndex = input.useCandidateMasks
+    ? buildCandidateMaskIndex({
+      grid: input.grid,
+      z: input.z,
+      belowOwners: input.belowOwners,
+      surfaceCells: input.surfaceCells,
+      supportOptionalCells: input.supportOptionalCells,
+    })
+    : undefined;
   const beamWidth = input.beamWidth ?? DEFAULT_BEAM_WIDTH;
   let states: SearchState[] = [{ covered: new Set<string>(), bricks: [], cost: 0 }];
   let candidateBranches = 0;
+  let candidateCount = 0;
   let fallbackPlacements = 0;
 
   while (states.length > 0) {
@@ -312,7 +389,15 @@ export function solveLayer(input: LayerSolveInput): LayerSolveResult {
     if (complete) {
       return {
         bricks: complete.bricks,
-        stats: { filledCells: cells.length, candidateBranches, fallbackPlacements, finalCost: complete.cost },
+        stats: {
+          filledCells: cells.length,
+          candidateBranches,
+          fallbackPlacements,
+          finalCost: complete.cost,
+          candidateCount,
+          candidateMaskMs: maskIndex?.stats.elapsedMs ?? 0,
+          maskCheckedPlacements: maskIndex?.stats.checkedPlacements ?? 0,
+        },
       };
     }
 
@@ -325,8 +410,9 @@ export function solveLayer(input: LayerSolveInput): LayerSolveResult {
         continue;
       }
 
-      const candidates = generateCandidatesForCell(input, anchor[0], anchor[1], state.covered);
+      const candidates = generateCandidatesForCell(input, anchor[0], anchor[1], state.covered, maskIndex);
       candidateBranches += candidates.length;
+      candidateCount += candidates.length;
 
       const usable = candidates.length > 0
         ? candidates
@@ -365,7 +451,18 @@ export function solveLayer(input: LayerSolveInput): LayerSolveResult {
       .slice(0, beamWidth);
   }
 
-  return { bricks: [], stats: { filledCells: cells.length, candidateBranches, fallbackPlacements, finalCost: Infinity } };
+  return {
+    bricks: [],
+    stats: {
+      filledCells: cells.length,
+      candidateBranches,
+      fallbackPlacements,
+      finalCost: Infinity,
+      candidateCount,
+      candidateMaskMs: maskIndex?.stats.elapsedMs ?? 0,
+      maskCheckedPlacements: maskIndex?.stats.checkedPlacements ?? 0,
+    },
+  };
 }
 
 export function buildLayerOwners(bricks: readonly SolvedBrick[]): Map<string, string> {

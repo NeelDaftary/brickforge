@@ -3,11 +3,12 @@
 import { Canvas } from '@react-three/fiber';
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
-import type { BrickInstance, BrickModelData, VoxelData } from '@/lib/engine/types';
+import type { BrickInstance, BrickModelData } from '@/lib/engine/types';
 import { COLOR_PALETTE } from '@/lib/engine/color-palette';
 import { floodFill } from '@/lib/engine/flood-fill';
 import { expandGridIfNeeded } from '@/lib/engine/grid-utils';
-import { checkGridStability, type GridStabilityResult } from '@/lib/pipeline/brick-stability';
+import { checkGridStability } from '@/lib/pipeline/brick-stability';
+import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
 import { BrickScene, type ViewMode } from './BrickScene';
 import { BuildStepsPanel } from './BuildStepsPanel';
 import { EditToolbar, type EditTool } from './EditToolbar';
@@ -16,8 +17,11 @@ import { ReferenceImages } from './ReferenceImages';
 
 interface LegoCanvasProps {
   model: BrickModelData;
+  diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
   onModelUpdate?: (model: BrickModelData) => void;
 }
+
+type DiagnosticOverlayMode = 'auto' | 'floating' | 'unsupported' | 'weakCantilever' | 'articulation' | 'bridge' | 'internalSupport' | 'oracle' | 'off';
 
 function getMaxStep(model: BrickModelData): number {
   return model.bricks.reduce((max, b) => Math.max(max, b.step), 1);
@@ -89,9 +93,17 @@ function computeModelExtent(model: BrickModelData): number {
   return maxExtent;
 }
 
-export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
+function activeDiagnosticOverlay(mode: DiagnosticOverlayMode, ids?: Partial<GraphDiagnosticBrickIds>): DiagnosticOverlayMode {
+  if (mode !== 'auto') return mode;
+  const order: DiagnosticOverlayMode[] = ['floating', 'unsupported', 'weakCantilever', 'oracle', 'articulation', 'bridge', 'internalSupport'];
+  return order.find((candidate) => (ids?.[candidate as keyof GraphDiagnosticBrickIds]?.length ?? 0) > 0) ?? 'off';
+}
+
+export function LegoCanvas({ model, diagnosticBrickIds, onModelUpdate }: LegoCanvasProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('complete');
   const [currentStep, setCurrentStep] = useState(1);
+  const [diagnosticOverlayMode, setDiagnosticOverlayMode] = useState<DiagnosticOverlayMode>('auto');
+  const activeOverlayMode = activeDiagnosticOverlay(diagnosticOverlayMode, diagnosticBrickIds);
   const maxStep = useMemo(() => getMaxStep(model), [model]);
 
   // Adaptive camera based on model size
@@ -446,6 +458,8 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
               showAdjacentLayers={showAdjacentLayers}
               unstableCells={unstableCells}
               marginalCells={marginalCells}
+              diagnosticBrickIds={diagnosticBrickIds}
+              diagnosticOverlayMode={activeOverlayMode}
             />
           </Canvas>
 
@@ -476,6 +490,35 @@ export function LegoCanvas({ model, onModelUpdate }: LegoCanvasProps) {
               );
             })}
           </div>
+
+          {!editMode && diagnosticBrickIds && (
+            <div className="absolute top-3 right-3 flex gap-1 bg-white/90 backdrop-blur px-1 py-1 rounded-xl border border-black/10 shadow-toggle max-w-[48%] overflow-x-auto">
+              {([
+                ['auto', 'Auto'],
+                ['floating', 'Float'],
+                ['unsupported', 'No support'],
+                ['weakCantilever', 'Weak'],
+                ['articulation', 'Joint'],
+                ['bridge', 'Bridge'],
+                ['internalSupport', 'Support'],
+                ['oracle', 'Oracle'],
+                ['off', 'Off'],
+              ] as Array<[DiagnosticOverlayMode, string]>).map(([mode, label]) => {
+                const isActive = diagnosticOverlayMode === mode || (diagnosticOverlayMode === 'auto' && activeOverlayMode === mode);
+                return (
+                  <button
+                    key={mode}
+                    onClick={() => setDiagnosticOverlayMode(mode)}
+                    className={`px-2 py-1 text-[10px] font-semibold rounded-lg whitespace-nowrap transition-all ${
+                      isActive ? 'bg-brick-red text-white shadow-toggle-active' : 'text-[#888888] hover:bg-black/5'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {editMode && (

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BrickInstance } from '@/lib/engine/types';
-import { analyzeBrickGraph, buildBrickGraph, summarizeGraphDiagnostics } from './brick-graph';
+import { analyzeBrickGraph, buildAttachmentTree, buildBrickGraph, descendantIds, summarizeGraphDiagnostics } from './brick-graph';
 
 function brick(id: string, opts: { x: number; y: number; z: number; w: number; d: number }): BrickInstance {
   return {
@@ -101,5 +101,32 @@ describe('brick graph diagnostics', () => {
       gateStatus: 'warn',
     });
     expect(summary.healthScore).toBeGreaterThanOrEqual(0);
+  });
+
+  it('chooses strongest vertical support as attachment parent and exposes descendants', () => {
+    const graph = buildBrickGraph([
+      brick('left', { x: 0, y: 0, z: 0, w: 2, d: 2 }),
+      brick('right', { x: 2, y: 0, z: 0, w: 1, d: 1 }),
+      brick('child', { x: 0, y: 0, z: 1, w: 3, d: 1 }),
+      brick('grandchild', { x: 0, y: 0, z: 2, w: 1, d: 1 }),
+    ]);
+
+    const tree = buildAttachmentTree(graph);
+
+    expect(tree.parentByBrickId.get('child')).toBe('left');
+    expect(descendantIds(tree, 'child')).toEqual(new Set(['grandchild']));
+  });
+
+  it('ranks weak regions with floating defects first', () => {
+    const diagnostics = analyzeBrickGraph([
+      brick('base', { x: 0, y: 0, z: 0, w: 2, d: 2 }),
+      brick('floating', { x: 5, y: 0, z: 1, w: 2, d: 2 }),
+      brick('weak', { x: 0, y: 0, z: 1, w: 4, d: 1 }),
+    ]);
+
+    expect(diagnostics.weakRegions[0]).toMatchObject({
+      defectType: 'floating',
+      primaryBrickId: 'floating',
+    });
   });
 });

@@ -53,6 +53,7 @@ export interface GraphDiagnostics {
     repeatedAdjacentLayerSeams: number;
     maxVerticalRun: number;
   };
+  weakRegions: WeakRegionDiagnostic[];
 }
 
 export interface GraphDiagnosticsSummary {
@@ -70,6 +71,33 @@ export interface GraphDiagnosticsSummary {
   healthScore: number;
   gateStatus: 'pass' | 'warn' | 'fail';
   seamAlignment: GraphDiagnostics['seamAlignment'];
+}
+
+export interface GraphDiagnosticBrickIds {
+  floating: string[];
+  unsupported: string[];
+  weakCantilever: string[];
+  supportedCantilever: string[];
+  articulation: string[];
+  bridge: string[];
+  internalSupport: string[];
+  oracle: string[];
+}
+
+export interface AttachmentTree {
+  parentByBrickId: Map<string, string>;
+  childrenByBrickId: Map<string, Set<string>>;
+}
+
+export type WeakRegionType = 'floating' | 'unsupported' | 'weak_cantilever' | 'articulation' | 'bridge';
+
+export interface WeakRegionDiagnostic {
+  defectType: WeakRegionType;
+  primaryBrickId: string;
+  severity: [number, number, number, number];
+  loadAboveStuds: number;
+  affectedSubtreeSize: number;
+  suggestedRepairRadius: { xy: number; z: number };
 }
 
 const ROOT_ID = '__root__';
@@ -426,6 +454,108 @@ function computeSeamAlignment(graph: BrickGraph): GraphDiagnostics['seamAlignmen
   return { totalSeams, repeatedAdjacentLayerSeams, maxVerticalRun };
 }
 
+export function buildAttachmentTree(graph: BrickGraph): AttachmentTree {
+  const byId = new Map(graph.bricks.map((brick) => [brick.id, brick]));
+  const parentByBrickId = new Map<string, string>();
+  const childrenByBrickId = new Map<string, Set<string>>();
+  const ensureChildren = (id: string) => {
+    let children = childrenByBrickId.get(id);
+    if (!children) {
+      children = new Set<string>();
+      childrenByBrickId.set(id, children);
+    }
+    return children;
+  };
+
+  ensureChildren(ROOT_ID);
+  for (const brick of graph.bricks) ensureChildren(brick.id);
+
+  for (const brick of graph.bricks) {
+    if (brick.z === 0) {
+      parentByBrickId.set(brick.id, ROOT_ID);
+      ensureChildren(ROOT_ID).add(brick.id);
+      continue;
+    }
+
+    let bestParent: { id: string; weight: number } | null = null;
+    for (const edge of graph.edges) {
+      if (edge.type !== 'vertical') continue;
+      const from = byId.get(edge.from);
+      const to = byId.get(edge.to);
+      if (!from || !to) continue;
+      const parent = from.z < to.z ? from : to;
+      const child = from.z < to.z ? to : from;
+      if (child.id !== brick.id) continue;
+      if (!bestParent || edge.weight > bestParent.weight) bestParent = { id: parent.id, weight: edge.weight };
+    }
+
+    if (bestParent) {
+      parentByBrickId.set(brick.id, bestParent.id);
+      ensureChildren(bestParent.id).add(brick.id);
+    }
+  }
+
+  return { parentByBrickId, childrenByBrickId };
+}
+
+export function descendantIds(tree: AttachmentTree, brickId: string): Set<string> {
+  const descendants = new Set<string>();
+  const stack = [...(tree.childrenByBrickId.get(brickId) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (descendants.has(id)) continue;
+    descendants.add(id);
+    for (const child of tree.childrenByBrickId.get(id) ?? []) stack.push(child);
+  }
+  return descendants;
+}
+
+export function rankWeakRegions(graph: BrickGraph, diagnostics = analyzeBrickGraph(graph)): WeakRegionDiagnostic[] {
+  const tree = buildAttachmentTree(graph);
+  const byId = new Map(graph.bricks.map((brick) => [brick.id, brick]));
+  const regions = new Map<string, WeakRegionDiagnostic>();
+
+  const addRegion = (defectType: WeakRegionType, id: string, priority: number) => {
+    const brick = byId.get(id);
+    if (!brick) return;
+    const loadAboveStuds = diagnostics.loadAbove.get(id)?.loadAboveStuds ?? 0;
+    const affectedSubtreeSize = descendantIds(tree, id).size;
+    const support = diagnostics.support.get(id);
+    const supportPenalty = support ? Math.round((1 - support.supportRatio) * 100) : 100;
+    const region: WeakRegionDiagnostic = {
+      defectType,
+      primaryBrickId: id,
+      severity: [priority, loadAboveStuds, affectedSubtreeSize, supportPenalty],
+      loadAboveStuds,
+      affectedSubtreeSize,
+      suggestedRepairRadius: {
+        xy: Math.min(6, Math.max(3, Math.ceil(Math.max(brick.w, brick.d) / 2) + 2)),
+        z: affectedSubtreeSize > 4 ? 2 : 1,
+      },
+    };
+    const existing = regions.get(id);
+    if (!existing || compareSeverity(region.severity, existing.severity) > 0) regions.set(id, region);
+  };
+
+  for (const id of diagnostics.floatingBrickIds) addRegion('floating', id, 5);
+  for (const id of diagnostics.unsupportedBrickIds) addRegion('unsupported', id, 4);
+  for (const id of diagnostics.weakCantileverBrickIds) addRegion('weak_cantilever', id, 3);
+  for (const id of diagnostics.articulationBrickIds) addRegion('articulation', id, 2);
+  for (const edge of diagnostics.bridgeEdges) {
+    if (edge.from !== ROOT_ID) addRegion('bridge', edge.from, 1);
+    if (edge.to !== ROOT_ID) addRegion('bridge', edge.to, 1);
+  }
+
+  return [...regions.values()].sort((a, b) => compareSeverity(b.severity, a.severity));
+}
+
+function compareSeverity(a: WeakRegionDiagnostic['severity'], b: WeakRegionDiagnostic['severity']): number {
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
+  }
+  return 0;
+}
+
 export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDiagnostics {
   const graph = Array.isArray(input) ? buildBrickGraph(input) : input;
   const adjacency = structuralAdjacency(graph);
@@ -444,7 +574,7 @@ export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDia
     if (support.classification === 'weak_cantilever') weakCantileverBrickIds.add(id);
   }
 
-  return {
+  const diagnostics: GraphDiagnostics = {
     brickCount: graph.bricks.length,
     connectedComponents: components,
     anchoredBrickIds,
@@ -457,7 +587,10 @@ export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDia
     support: graph.support,
     loadAbove: computeLoadAbove(graph),
     seamAlignment: computeSeamAlignment(graph),
+    weakRegions: [],
   };
+  diagnostics.weakRegions = rankWeakRegions(graph, diagnostics);
+  return diagnostics;
 }
 
 export function scoreGraphDiagnostics(diagnostics: Pick<GraphDiagnosticsSummary,
@@ -510,4 +643,29 @@ export function summarizeGraphDiagnostics(
   summary.healthScore = scoreGraphDiagnostics({ ...summary, brickCount: diagnostics.brickCount });
   summary.gateStatus = gateStatusFor(summary);
   return summary;
+}
+
+export function summarizeGraphDiagnosticBrickIds(
+  diagnostics: GraphDiagnostics,
+  graph?: BrickGraph,
+  oracleBrickIds: string[] = [],
+): GraphDiagnosticBrickIds {
+  const bridge = new Set<string>();
+  for (const edge of diagnostics.bridgeEdges) {
+    if (edge.from !== ROOT_ID) bridge.add(edge.from);
+    if (edge.to !== ROOT_ID) bridge.add(edge.to);
+  }
+
+  return {
+    floating: [...diagnostics.floatingBrickIds],
+    unsupported: [...diagnostics.unsupportedBrickIds],
+    weakCantilever: [...diagnostics.weakCantileverBrickIds],
+    supportedCantilever: [...diagnostics.cantileveredBrickIds],
+    articulation: [...diagnostics.articulationBrickIds],
+    bridge: [...bridge],
+    internalSupport: graph?.bricks
+      .filter((brick) => brick.source.metadata?.internalSupport)
+      .map((brick) => brick.id) ?? [],
+    oracle: oracleBrickIds,
+  };
 }
