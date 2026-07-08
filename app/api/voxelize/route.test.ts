@@ -108,6 +108,34 @@ describe('POST /api/voxelize', () => {
     expect(voxelGridToBrickModelMock).toHaveBeenCalledTimes(1);
   });
 
+  it('normalizes empty bottom layers before bricking voxelData', async () => {
+    voxelGridToBrickModelV2Mock.mockReturnValue({
+      name: 'Generated Build',
+      description: 'LEGO build generated from 3D model',
+      totalBricks: 1,
+      bricks: [],
+    });
+
+    const res = await POST(makeReq({
+      brickerEngine: 'stability_v2',
+      voxelData: {
+        grid: [[['0', 'R']]],
+        color_legend: { R: '#DB0000' },
+      },
+    }));
+
+    expect(res.status).toBe(200);
+    expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        grid: [[['R']]],
+        gridSize: 1,
+      }),
+      'Generated Build',
+      'LEGO build generated from 3D model',
+      expect.objectContaining({ shell: true, variant: 'stability_v2' }),
+    );
+  });
+
   it('uses the v2 bricker for voxelData when requested', async () => {
     voxelGridToBrickModelV2Mock.mockReturnValue({
       name: 'Generated Build',

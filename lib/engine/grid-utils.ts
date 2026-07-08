@@ -14,6 +14,59 @@ export interface ExpandResult {
   offsetZ: number;
 }
 
+export interface NormalizeZResult {
+  grid: string[][][];
+  offsetZ: number;
+}
+
+function isFilled(symbol: string | undefined): boolean {
+  return Boolean(symbol && symbol !== '0');
+}
+
+/**
+ * Shift a voxel grid down so the lowest filled voxel sits on z=0.
+ *
+ * Manual edits can leave an empty bottom layer after users delete temporary
+ * supports. LEGO build steps should be ground-relative, so an empty bottom
+ * layer means the whole remaining model should drop down before rebricking.
+ */
+export function normalizeGridZ(grid: string[][][]): NormalizeZResult {
+  const sizeX = grid.length;
+  const sizeY = sizeX > 0 ? grid[0].length : 0;
+  const sizeZ = sizeY > 0 ? grid[0][0].length : 0;
+  let minFilledZ = Infinity;
+  let maxFilledZ = -Infinity;
+
+  for (let x = 0; x < sizeX; x++) {
+    for (let y = 0; y < sizeY; y++) {
+      for (let z = 0; z < sizeZ; z++) {
+        if (!isFilled(grid[x][y][z])) continue;
+        minFilledZ = Math.min(minFilledZ, z);
+        maxFilledZ = Math.max(maxFilledZ, z);
+      }
+    }
+  }
+
+  if (!Number.isFinite(minFilledZ) || minFilledZ === 0) {
+    return { grid, offsetZ: 0 };
+  }
+
+  const newSizeZ = maxFilledZ - minFilledZ + 1;
+  const normalized = Array.from({ length: sizeX }, () =>
+    Array.from({ length: sizeY }, () => new Array(newSizeZ).fill('0')),
+  );
+
+  for (let x = 0; x < sizeX; x++) {
+    for (let y = 0; y < sizeY; y++) {
+      for (let z = minFilledZ; z <= maxFilledZ; z++) {
+        normalized[x][y][z - minFilledZ] = grid[x][y][z];
+      }
+    }
+  }
+
+  return { grid: normalized, offsetZ: minFilledZ };
+}
+
 /**
  * Expand the grid if `(targetX, targetY, targetZ)` falls outside current bounds.
  * Returns the (possibly enlarged) grid and the offsets applied to existing data.

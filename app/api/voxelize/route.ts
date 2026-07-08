@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { normalizeGridZ } from '@/lib/engine/grid-utils';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
@@ -77,7 +78,9 @@ export async function POST(req: NextRequest) {
     } = VoxelRequestSchema.parse(body);
 
     if (voxelData) {
-      const { grid, color_legend: colorLegend } = voxelData;
+      const { grid: rawGrid, color_legend: colorLegend } = voxelData;
+      const normalized = normalizeGridZ(rawGrid);
+      const grid = normalized.grid;
       const gridSize = deriveGridSize(grid);
       logGrid(grid, colorLegend);
 

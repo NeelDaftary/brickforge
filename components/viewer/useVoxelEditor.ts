@@ -5,7 +5,7 @@ import { v4 as uuid } from 'uuid';
 import type { BrickInstance, BrickModelData } from '@/lib/engine/types';
 import { COLOR_PALETTE } from '@/lib/engine/color-palette';
 import { floodFill } from '@/lib/engine/flood-fill';
-import { expandGridIfNeeded } from '@/lib/engine/grid-utils';
+import { expandGridIfNeeded, normalizeGridZ } from '@/lib/engine/grid-utils';
 import { checkGridStability } from '@/lib/pipeline/brick-stability';
 import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
 import type { EditTool } from './EditToolbar';
@@ -130,10 +130,14 @@ export function useVoxelEditor({
 
   const commitGridChange = useCallback(
     (newGrid: string[][][]) => {
-      setEditedGrid(newGrid);
+      const normalized = normalizeGridZ(newGrid);
+      if (normalized.offsetZ > 0) {
+        setActiveLayer((layer) => Math.max(0, layer - normalized.offsetZ));
+      }
+      setEditedGrid(normalized.grid);
       setChangeCount((count) => count + 1);
-      setVoxelModel(gridTo1x1Model(newGrid, fullLegend, model.name));
-      runStabilityCheck(newGrid);
+      setVoxelModel(gridTo1x1Model(normalized.grid, fullLegend, model.name));
+      runStabilityCheck(normalized.grid);
     },
     [fullLegend, model.name, runStabilityCheck],
   );
@@ -156,7 +160,8 @@ export function useVoxelEditor({
     setApplying(true);
 
     try {
-      const gridSize = Math.max(editedGrid.length, editedGrid[0]?.length ?? 0, editedGrid[0]?.[0]?.length ?? 0);
+      const normalized = normalizeGridZ(editedGrid);
+      const gridSize = Math.max(normalized.grid.length, normalized.grid[0]?.length ?? 0, normalized.grid[0]?.[0]?.length ?? 0);
       const diagnostics = (model as BrickModelData & { diagnostics?: ModelDiagnostics }).diagnostics;
 
       const res = await fetch('/api/voxelize', {
@@ -164,7 +169,7 @@ export function useVoxelEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           voxelData: {
-            grid: editedGrid,
+            grid: normalized.grid,
             color_legend: fullLegend,
           },
           gridSize,

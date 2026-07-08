@@ -1,4 +1,5 @@
 import type { BrickInstance, BrickModelData, Vector3, VoxelData } from '@/lib/engine/types';
+import { normalizeGridZ } from '@/lib/engine/grid-utils';
 import { buildLayoutDiagnostics } from '@/lib/pipeline/layout-diagnostics';
 import type { GeneratedModel, ModelDiagnostics } from '@/lib/pipeline/model-diagnostics';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
@@ -500,8 +501,13 @@ function withDiagnostics(model: BrickModelData, startedAt: number, voxelSize: nu
 
 function rebrickVoxelData(base: BrickModelData, voxelData: VoxelData, voxelSize: number, shell: boolean): GeneratedModel {
   const startedAt = Date.now();
+  const normalized = normalizeGridZ(voxelData.grid);
   const model = voxelGridToBrickModelV2(
-    { grid: voxelData.grid, colorLegend: voxelData.colorLegend, gridSize: voxelData.gridSize },
+    {
+      grid: normalized.grid,
+      colorLegend: voxelData.colorLegend,
+      gridSize: Math.max(normalized.grid.length, normalized.grid[0]?.length ?? 0, normalized.grid[0]?.[0]?.length ?? 0),
+    },
     base.name,
     base.description,
     { shell, variant: 'stability_v2' },
