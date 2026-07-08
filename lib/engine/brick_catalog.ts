@@ -8,11 +8,14 @@ export const BRICK_CATALOG: BrickDefinition[] = [
   { id: 'b_1x4', name: '1x4 Brick', bricklinkId: '3010', type: 'brick', width: 4, depth: 1, height: 3 },
   { id: 'b_1x6', name: '1x6 Brick', bricklinkId: '3009', type: 'brick', width: 6, depth: 1, height: 3 },
   { id: 'b_1x8', name: '1x8 Brick', bricklinkId: '3008', type: 'brick', width: 8, depth: 1, height: 3 },
+  { id: 'b_1x10', name: '1x10 Brick', bricklinkId: '6111', type: 'brick', width: 10, depth: 1, height: 3 },
+  { id: 'b_1x12', name: '1x12 Brick', bricklinkId: '6112', type: 'brick', width: 12, depth: 1, height: 3 },
   { id: 'b_2x2', name: '2x2 Brick', bricklinkId: '3003', type: 'brick', width: 2, depth: 2, height: 3 },
   { id: 'b_2x3', name: '2x3 Brick', bricklinkId: '3002', type: 'brick', width: 3, depth: 2, height: 3 },
   { id: 'b_2x4', name: '2x4 Brick', bricklinkId: '3001', type: 'brick', width: 4, depth: 2, height: 3 },
   { id: 'b_2x6', name: '2x6 Brick', bricklinkId: '2456', type: 'brick', width: 6, depth: 2, height: 3 },
   { id: 'b_2x8', name: '2x8 Brick', bricklinkId: '3007', type: 'brick', width: 8, depth: 2, height: 3 },
+  { id: 'b_2x10', name: '2x10 Brick', bricklinkId: '3006', type: 'brick', width: 10, depth: 2, height: 3 },
   { id: 'b_4x4', name: '4x4 Brick', bricklinkId: '3011', type: 'brick', width: 4, depth: 4, height: 3 },
 
   // Plates (height = 1 plate unit)
@@ -22,11 +25,15 @@ export const BRICK_CATALOG: BrickDefinition[] = [
   { id: 'p_1x4', name: '1x4 Plate', bricklinkId: '3710', type: 'plate', width: 4, depth: 1, height: 1 },
   { id: 'p_1x6', name: '1x6 Plate', bricklinkId: '3666', type: 'plate', width: 6, depth: 1, height: 1 },
   { id: 'p_1x8', name: '1x8 Plate', bricklinkId: '3460', type: 'plate', width: 8, depth: 1, height: 1 },
+  { id: 'p_1x10', name: '1x10 Plate', bricklinkId: '4477', type: 'plate', width: 10, depth: 1, height: 1 },
+  { id: 'p_1x12', name: '1x12 Plate', bricklinkId: '60479', type: 'plate', width: 12, depth: 1, height: 1 },
   { id: 'p_2x2', name: '2x2 Plate', bricklinkId: '3022', type: 'plate', width: 2, depth: 2, height: 1 },
   { id: 'p_2x3', name: '2x3 Plate', bricklinkId: '3021', type: 'plate', width: 3, depth: 2, height: 1 },
   { id: 'p_2x4', name: '2x4 Plate', bricklinkId: '3020', type: 'plate', width: 4, depth: 2, height: 1 },
   { id: 'p_2x6', name: '2x6 Plate', bricklinkId: '3795', type: 'plate', width: 6, depth: 2, height: 1 },
   { id: 'p_2x8', name: '2x8 Plate', bricklinkId: '3034', type: 'plate', width: 8, depth: 2, height: 1 },
+  { id: 'p_2x10', name: '2x10 Plate', bricklinkId: '3832', type: 'plate', width: 10, depth: 2, height: 1 },
+  { id: 'p_2x12', name: '2x12 Plate', bricklinkId: '2445', type: 'plate', width: 12, depth: 2, height: 1 },
   { id: 'p_4x4', name: '4x4 Plate', bricklinkId: '3031', type: 'plate', width: 4, depth: 4, height: 1 },
 
   // Slopes

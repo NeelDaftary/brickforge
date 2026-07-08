@@ -208,25 +208,22 @@ function buildStandardBrick(studW: number, studD: number, bodyHeight: number, co
 
   const parts: RawMesh[] = [];
 
-  // ── Hollow body: floor, ceiling, 4 walls ──
+  // ── Hollow body: open underside, top deck, 4 side walls ──
 
-  // Floor (bottom slab)
-  parts.push(makeBox(0, 0, 0, bodyW, FLOOR_THICKNESS, bodyD));
-
-  // Ceiling (top slab)
+  // Top deck
   parts.push(makeBox(0, bodyH - FLOOR_THICKNESS, 0, bodyW, FLOOR_THICKNESS, bodyD));
 
   // Left wall (x = 0)
-  parts.push(makeBox(0, FLOOR_THICKNESS, 0, WALL_THICKNESS, bodyH - 2 * FLOOR_THICKNESS, bodyD));
+  parts.push(makeBox(0, 0, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, bodyD));
 
   // Right wall (x = bodyW - WALL_THICKNESS)
-  parts.push(makeBox(bodyW - WALL_THICKNESS, FLOOR_THICKNESS, 0, WALL_THICKNESS, bodyH - 2 * FLOOR_THICKNESS, bodyD));
+  parts.push(makeBox(bodyW - WALL_THICKNESS, 0, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, bodyD));
 
   // Front wall (z = 0)
-  parts.push(makeBox(WALL_THICKNESS, FLOOR_THICKNESS, 0, bodyW - 2 * WALL_THICKNESS, bodyH - 2 * FLOOR_THICKNESS, WALL_THICKNESS));
+  parts.push(makeBox(WALL_THICKNESS, 0, 0, bodyW - 2 * WALL_THICKNESS, bodyH - FLOOR_THICKNESS, WALL_THICKNESS));
 
   // Back wall (z = bodyD - WALL_THICKNESS)
-  parts.push(makeBox(WALL_THICKNESS, FLOOR_THICKNESS, bodyD - WALL_THICKNESS, bodyW - 2 * WALL_THICKNESS, bodyH - 2 * FLOOR_THICKNESS, WALL_THICKNESS));
+  parts.push(makeBox(WALL_THICKNESS, 0, bodyD - WALL_THICKNESS, bodyW - 2 * WALL_THICKNESS, bodyH - FLOOR_THICKNESS, WALL_THICKNESS));
 
   // ── Studs on top ──
   const studR = STUD_DIAMETER / 2;
@@ -243,30 +240,30 @@ function buildStandardBrick(studW: number, studD: number, bodyHeight: number, co
     // Tubes at grid intersections between studs
     const tubeOuterR = TUBE_OUTER_D / 2;
     const tubeInnerR = TUBE_INNER_D / 2;
-    const tubeH = bodyH - FLOOR_THICKNESS; // from floor slab top to ceiling slab bottom
+    const tubeH = bodyH - FLOOR_THICKNESS; // from open underside to top deck underside
     for (let tz = 0; tz < studD - 1; tz++) {
       for (let tx = 0; tx < studW - 1; tx++) {
         const cx = bodyW / 2 + (tx - (studW - 2) / 2) * STUD_PITCH;
         const cz = bodyD / 2 + (tz - (studD - 2) / 2) * STUD_PITCH;
-        parts.push(makeTube(cx, FLOOR_THICKNESS, cz, tubeOuterR, tubeInnerR, tubeH, segs));
+        parts.push(makeTube(cx, 0, cz, tubeOuterR, tubeInnerR, tubeH, segs));
       }
     }
   } else if (studW === 1 && studD > 1) {
     // 1xN: single ridge bar along the interior bottom
     const ridgeW = STUD_DIAMETER; // ridge width matches stud diameter
-    const ridgeH = bodyH - 2 * FLOOR_THICKNESS;
+    const ridgeH = bodyH - FLOOR_THICKNESS;
     const ridgeD = (studD - 1) * STUD_PITCH;
     const ridgeX = (bodyW - ridgeW) / 2;
     const ridgeZ = (bodyD - ridgeD) / 2;
-    parts.push(makeBox(ridgeX, FLOOR_THICKNESS, ridgeZ, ridgeW, ridgeH, ridgeD));
+    parts.push(makeBox(ridgeX, 0, ridgeZ, ridgeW, ridgeH, ridgeD));
   } else if (studD === 1 && studW > 1) {
     // Nx1 (rotated 1xN): single ridge bar along the other axis
     const ridgeD = STUD_DIAMETER;
-    const ridgeH = bodyH - 2 * FLOOR_THICKNESS;
+    const ridgeH = bodyH - FLOOR_THICKNESS;
     const ridgeW = (studW - 1) * STUD_PITCH;
     const ridgeX = (bodyW - ridgeW) / 2;
     const ridgeZ = (bodyD - ridgeD) / 2;
-    parts.push(makeBox(ridgeX, FLOOR_THICKNESS, ridgeZ, ridgeW, ridgeH, ridgeD));
+    parts.push(makeBox(ridgeX, 0, ridgeZ, ridgeW, ridgeH, ridgeD));
   }
   // 1x1: no interior features (walls provide interference fit)
 
@@ -293,27 +290,24 @@ function buildSlope2x2(config: PrintConfig): IndexedMesh {
   const backZ = bodyD / 2;
   const backD = bodyD / 2;
 
-  // Floor across full footprint
-  parts.push(makeBox(0, 0, 0, bodyW, FLOOR_THICKNESS, bodyD));
-
   // Back section: full-height box (walls + ceiling for back half)
   // Left wall (back)
-  parts.push(makeBox(0, FLOOR_THICKNESS, backZ, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, backD));
+  parts.push(makeBox(0, 0, backZ, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, backD));
   // Right wall (back)
-  parts.push(makeBox(bodyW - WALL_THICKNESS, FLOOR_THICKNESS, backZ, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, backD));
+  parts.push(makeBox(bodyW - WALL_THICKNESS, 0, backZ, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, backD));
   // Back wall (z = bodyD)
-  parts.push(makeBox(0, FLOOR_THICKNESS, bodyD - WALL_THICKNESS, bodyW, bodyH - FLOOR_THICKNESS, WALL_THICKNESS));
+  parts.push(makeBox(0, 0, bodyD - WALL_THICKNESS, bodyW, bodyH - FLOOR_THICKNESS, WALL_THICKNESS));
   // Ceiling (back half only)
   parts.push(makeBox(0, bodyH - FLOOR_THICKNESS, backZ, bodyW, FLOOR_THICKNESS, backD));
 
   // Front section lower walls (z from 0 to bodyD/2)
   const frontD = bodyD / 2;
   // Left wall (front, shorter)
-  parts.push(makeBox(0, FLOOR_THICKNESS, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, frontD));
+  parts.push(makeBox(0, 0, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, frontD));
   // Right wall (front, shorter)
-  parts.push(makeBox(bodyW - WALL_THICKNESS, FLOOR_THICKNESS, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, frontD));
+  parts.push(makeBox(bodyW - WALL_THICKNESS, 0, 0, WALL_THICKNESS, bodyH - FLOOR_THICKNESS, frontD));
   // Front wall (z = 0) — just the lower portion
-  parts.push(makeBox(0, FLOOR_THICKNESS, 0, bodyW, WALL_THICKNESS, WALL_THICKNESS));
+  parts.push(makeBox(0, 0, 0, bodyW, WALL_THICKNESS, WALL_THICKNESS));
 
   // ── Sloped face ──
   // Wedge from front-top-of-front-wall to back-top-of-ceiling
@@ -367,7 +361,7 @@ function buildSlope2x2(config: PrintConfig): IndexedMesh {
   const tubeOuterR = TUBE_OUTER_D / 2;
   const tubeInnerR = TUBE_INNER_D / 2;
   const tubeH = bodyH - FLOOR_THICKNESS;
-  parts.push(makeTube(bodyW / 2, FLOOR_THICKNESS, bodyD / 2, tubeOuterR, tubeInnerR, tubeH, segs));
+  parts.push(makeTube(bodyW / 2, 0, bodyD / 2, tubeOuterR, tubeInnerR, tubeH, segs));
 
   return mergeMeshes(parts);
 }
