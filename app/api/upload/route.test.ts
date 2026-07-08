@@ -17,9 +17,17 @@ import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 
 const runVoxelPipelineMock = vi.mocked(runVoxelPipeline);
 
-function blendFile(content: Uint8Array | string, name = 'cube.blend'): File {
+function meshFile(content: Uint8Array | string, name = 'cube.blend'): File {
   const blob = new Blob([typeof content === 'string' ? content : new Uint8Array(content)]);
   return new File([blob], name, { type: 'application/octet-stream' });
+}
+
+function blendFile(content: Uint8Array | string, name = 'cube.blend'): File {
+  return meshFile(content, name);
+}
+
+function glbFile(name = 'cube.glb'): File {
+  return meshFile(new Uint8Array([0x67, 0x6c, 0x54, 0x46, 0x02, 0x00, 0x00, 0x00]), name);
 }
 
 function formReq(form: FormData, headers: Record<string, string> = {}): Request {
@@ -52,6 +60,22 @@ beforeEach(() => {
       totalBricks: 1,
       shelled: true,
       unsupportedBricks: 0,
+      layout: {
+        connectedComponents: 0,
+        largestComponentBricks: 0,
+        floatingBricks: 0,
+        unsupportedBricks: 0,
+        supportedCantilevers: 0,
+        weakCantilevers: 0,
+        articulationBricks: 0,
+        bridgeEdges: 0,
+        maxLoadAboveStuds: 0,
+        internalSupportBricks: 0,
+        internalSupportVoxels: 0,
+        healthScore: 0,
+        gateStatus: 'pass',
+        seamAlignment: { totalSeams: 0, repeatedAdjacentLayerSeams: 0, maxVerticalRun: 0 },
+      },
       warnings: [],
     },
   });
@@ -82,15 +106,15 @@ describe('POST /api/upload', () => {
     expect(body.code).toBe('INVALID_INPUT');
   });
 
-  it('returns UPLOAD_INVALID_FILE for non-.blend extension', async () => {
+  it('returns UPLOAD_INVALID_FILE for unsupported mesh extension', async () => {
     const form = new FormData();
-    form.append('mesh', blendFile('BLENDER-v30', 'cube.glb'));
+    form.append('mesh', meshFile('not supported', 'cube.fbx'));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await POST(formReq(form) as any);
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.code).toBe('UPLOAD_INVALID_FILE');
-    expect(body.error).toMatch(/\.blend/);
+    expect(body.error).toMatch(/\.blend, \.glb, \.obj, \.stl, \.ply/);
   });
 
   it('returns UPLOAD_INVALID_FILE when file lacks BLENDER magic bytes', async () => {
@@ -114,6 +138,15 @@ describe('POST /api/upload', () => {
     expect(runVoxelPipelineMock).toHaveBeenCalledTimes(1);
   });
 
+  it('accepts zstandard-compressed .blend magic (0x28 0xb5 0x2f 0xfd)', async () => {
+    const form = new FormData();
+    form.append('mesh', blendFile(new Uint8Array([0x28, 0xb5, 0x2f, 0xfd, 0x00, 0, 0, 0])));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await POST(formReq(form) as any);
+    expect(res.status).toBe(200);
+    expect(runVoxelPipelineMock).toHaveBeenCalledTimes(1);
+  });
+
   it('accepts a valid BLENDER-prefixed file and invokes the pipeline with clamped voxelSize', async () => {
     const form = new FormData();
     form.append('mesh', blendFile('BLENDER-v30 some binary junk'));
@@ -128,6 +161,76 @@ describe('POST /api/upload', () => {
     const callArgs = runVoxelPipelineMock.mock.calls[0][0];
     expect(callArgs.voxelSize).toBe(0.5);
     expect(callArgs.shell).toBe(false);
+  });
+
+  it('accepts valid .glb uploads and passes the glb path to the pipeline', async () => {
+    const form = new FormData();
+    form.append('mesh', glbFile('ship.glb'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await POST(formReq(form) as any);
+    expect(res.status).toBe(200);
+    expect(runVoxelPipelineMock).toHaveBeenCalledTimes(1);
+    expect(runVoxelPipelineMock.mock.calls[0][0].meshPath).toMatch(/ship\.glb$/);
+  });
+
+  it('accepts extension-validated .obj and .stl uploads', async () => {
+    for (const file of [
+      meshFile('o Cube\nv 0 0 0\n', 'cube.obj'),
+      meshFile(new Uint8Array([0, 1, 2, 3, 4, 5]), 'cube.stl'),
+    ]) {
+      runVoxelPipelineMock.mockClear();
+      const form = new FormData();
+      form.append('mesh', file);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const res = await POST(formReq(form) as any);
+      expect(res.status).toBe(200);
+      expect(runVoxelPipelineMock).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('rejects .glb uploads without GLB magic bytes', async () => {
+    const form = new FormData();
+    form.append('mesh', meshFile('not a glb', 'fake.glb'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await POST(formReq(form) as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('UPLOAD_INVALID_FILE');
+    expect(body.error).toMatch(/glTF/);
+    expect(runVoxelPipelineMock).not.toHaveBeenCalled();
+  });
+
+  it('rejects .ply uploads without PLY magic bytes', async () => {
+    const form = new FormData();
+    form.append('mesh', meshFile('not a ply', 'fake.ply'));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await POST(formReq(form) as any);
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.code).toBe('UPLOAD_INVALID_FILE');
+    expect(body.error).toMatch(/PLY/);
+    expect(runVoxelPipelineMock).not.toHaveBeenCalled();
+  });
+
+  it('forwards experimental bricker engine options to the pipeline', async () => {
+    const form = new FormData();
+    form.append('mesh', blendFile('BLENDER-v30'));
+    form.append('brickerEngine', 'v2_tree_repair');
+    form.append('shadowCompare', 'true');
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res = await POST(formReq(form) as any);
+    expect(res.status).toBe(200);
+    expect(runVoxelPipelineMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        brickerEngine: 'v2_tree_repair',
+        shadowCompare: true,
+      }),
+    );
   });
 
   it('forwards PipelineError from the pipeline with its mapped status code', async () => {

@@ -8,7 +8,7 @@ npx next dev --turbopack
 # Open http://localhost:3000
 ```
 
-1. **Generate** — Describe a build ("a medieval castle"), or upload a .blend/.glb mesh
+1. **Generate** — Describe a build ("a medieval castle"), or upload a .blend/.glb/.obj/.stl/.ply mesh
 2. **View** — Step through assembly instructions, rotate the 3D view
 3. **Export** — Click Export dropdown:
    - **STL Print Files** (.zip) — enter a name, downloads print-ready STLs + parts list

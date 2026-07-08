@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { getMeshBounds } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
+import { SUPPORTED_UPLOAD_FORMATS_LABEL } from '@/lib/pipeline/mesh-formats';
+import { assertSupportedMeshUpload, safeUploadedMeshName } from '@/lib/pipeline/mesh-upload';
 
 /**
  * POST /api/mesh-bounds
@@ -12,7 +14,7 @@ import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
  * Lightweight endpoint that returns the world-space bounding box of a mesh.
  * Used to compute voxel size from a user-friendly "target studs" input.
  *
- * Input: multipart/form-data with mesh (.blend) file
+ * Input: multipart/form-data with mesh (.blend/.glb/.obj/.stl/.ply) file
  * Output: { width, depth, height, maxExtent }
  */
 export async function POST(req: NextRequest) {
@@ -23,12 +25,10 @@ export async function POST(req: NextRequest) {
 
     const meshFile = formData.get('mesh') as File | null;
     if (!meshFile || !(meshFile instanceof File)) {
-      throw new PipelineError('INVALID_INPUT', 'Missing required .blend file');
+      throw new PipelineError('INVALID_INPUT', `Missing required mesh file (${SUPPORTED_UPLOAD_FORMATS_LABEL})`);
     }
 
-    if (!meshFile.name.toLowerCase().endsWith('.blend')) {
-      throw new PipelineError('UPLOAD_INVALID_FILE', 'Only .blend files are supported');
-    }
+    assertSupportedMeshUpload(meshFile.name);
 
     const objectName = (formData.get('objectName') as string) || undefined;
 
@@ -37,7 +37,9 @@ export async function POST(req: NextRequest) {
     await mkdir(uploadDir, { recursive: true });
 
     const meshBytes = Buffer.from(await meshFile.arrayBuffer());
-    const meshPath = path.join(uploadDir, meshFile.name);
+    assertSupportedMeshUpload(meshFile.name, meshBytes);
+
+    const meshPath = path.join(uploadDir, safeUploadedMeshName(meshFile.name));
     await writeFile(meshPath, meshBytes);
 
     const bounds = await getMeshBounds(meshPath, objectName);

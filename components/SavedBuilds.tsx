@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { loadBuildMetaList, deleteBuild, getStorageInfo } from '@/lib/storage/saved-builds';
 import type { SavedBuildMeta } from '@/lib/storage/saved-builds';
 
@@ -22,14 +22,11 @@ function formatRelativeTime(isoString: string): string {
 }
 
 export function SavedBuilds({ onLoadBuild, refreshKey }: SavedBuildsProps) {
-  const [builds, setBuilds] = useState<SavedBuildMeta[]>([]);
   const [expanded, setExpanded] = useState(false);
-  const [storageInfo, setStorageInfo] = useState({ usedKB: 0, buildCount: 0 });
-
-  useEffect(() => {
-    setBuilds(loadBuildMetaList());
-    setStorageInfo(getStorageInfo());
-  }, [refreshKey]);
+  const [, refreshLocalBuilds] = useState(0);
+  const builds: SavedBuildMeta[] = loadBuildMetaList();
+  const storageInfo = getStorageInfo();
+  void refreshKey;
 
   if (builds.length === 0) return null;
 
@@ -64,8 +61,7 @@ export function SavedBuilds({ onLoadBuild, refreshKey }: SavedBuildsProps) {
                   e.stopPropagation();
                   if (confirm(`Delete "${b.name}"?`)) {
                     deleteBuild(b.id);
-                    setBuilds(loadBuildMetaList());
-                    setStorageInfo(getStorageInfo());
+                    refreshLocalBuilds((key) => key + 1);
                   }
                 }}
                 className="text-xs text-[#CCCCCC] hover:text-brick-red transition-colors opacity-0 group-hover:opacity-100"

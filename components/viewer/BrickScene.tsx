@@ -2,6 +2,8 @@
 
 import { useMemo } from 'react';
 import type { BrickInstance, BrickModelData } from '@/lib/engine/types';
+import { isDangerousDiagnosticOverlay, type DiagnosticOverlayMode } from '@/lib/pipeline/diagnostic-categories';
+import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
 import type { EditTool } from './EditToolbar';
 import { BrickMesh } from './BrickMesh';
 import { CameraControls } from './CameraControls';
@@ -38,11 +40,13 @@ interface BrickSceneProps {
   editTool?: EditTool;
   activeLayer?: number;
   selectedColor?: string | null;
-  colorLegend?: Record<string, string>;
   onGridCellClick?: (gx: number, gy: number, gz: number) => void;
   showAdjacentLayers?: boolean;
   unstableCells?: Set<string>;
   marginalCells?: Set<string>;
+  diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
+  diagnosticOverlayMode?: DiagnosticOverlayMode;
+  focusedBrickIds?: string[];
 }
 
 export function BrickScene({
@@ -55,11 +59,13 @@ export function BrickScene({
   editTool,
   activeLayer,
   selectedColor,
-  colorLegend,
   onGridCellClick,
   showAdjacentLayers = true,
   unstableCells,
   marginalCells,
+  diagnosticBrickIds,
+  diagnosticOverlayMode = 'off',
+  focusedBrickIds,
 }: BrickSceneProps) {
   // Layer view only applies to add/erase — paint mode shows all layers
   const hasLayerView = editMode && activeLayer != null && editTool !== 'paint';
@@ -68,6 +74,14 @@ export function BrickScene({
   const extent = useMemo(() => computeModelExtent(model), [model]);
   const gridSize = Math.max(30, Math.ceil(extent * 1.5 / 2) * 2); // round up to even, at least 30
   const planeSize = gridSize * 2;
+  const selectedDiagnosticIds = useMemo(() => {
+    if (focusedBrickIds?.length) return new Set(focusedBrickIds);
+    if (diagnosticOverlayMode === 'auto' || diagnosticOverlayMode === 'off') return new Set<string>();
+    return new Set(diagnosticBrickIds?.[diagnosticOverlayMode as keyof GraphDiagnosticBrickIds] ?? []);
+  }, [diagnosticBrickIds, diagnosticOverlayMode, focusedBrickIds]);
+  const diagnosticFocusActive = selectedDiagnosticIds.size > 0;
+  const repairFocusActive = (focusedBrickIds?.length ?? 0) > 0;
+  const dangerousDiagnosticOverlay = isDangerousDiagnosticOverlay(diagnosticOverlayMode) || repairFocusActive;
 
   return (
     <>
@@ -112,8 +126,10 @@ export function BrickScene({
 
         // Stability flags
         const cellKey = brickGz != null ? `${brick.metadata!.gx},${brick.metadata!.gy},${brickGz}` : '';
-        const unstable = (editMode && unstableCells?.has(cellKey)) || false;
-        const marginal = (editMode && marginalCells?.has(cellKey)) || false;
+        const diagnosticHit = selectedDiagnosticIds.has(brick.id);
+        const diagnosticMuted = diagnosticFocusActive && !diagnosticHit;
+        const unstable = (editMode && unstableCells?.has(cellKey)) || (diagnosticHit && dangerousDiagnosticOverlay);
+        const marginal = (editMode && marginalCells?.has(cellKey)) || (diagnosticHit && !dangerousDiagnosticOverlay);
 
         return (
           <BrickMesh
@@ -125,18 +141,18 @@ export function BrickScene({
             adjacentLayer={adjacentLayer}
             unstable={unstable}
             marginal={marginal}
+            diagnosticMuted={diagnosticMuted}
             onClick={adjacentLayer ? undefined : onBrickClick}
           />
         );
       })}
 
-      {editMode && editGrid && editTool && editTool !== 'paint' && activeLayer != null && colorLegend && onGridCellClick && (
+      {editMode && editGrid && editTool && editTool !== 'paint' && activeLayer != null && onGridCellClick && (
         <EditGridPlane
           editGrid={editGrid}
           activeLayer={activeLayer}
           editTool={editTool}
           selectedColor={selectedColor ?? null}
-          colorLegend={colorLegend}
           onGridCellClick={onGridCellClick}
         />
       )}

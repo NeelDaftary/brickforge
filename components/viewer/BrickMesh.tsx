@@ -10,6 +10,7 @@ const UNIT = 1;
 const PLATE_HEIGHT = 0.4;
 const STUD_RADIUS = 0.3;
 const STUD_HEIGHT = 0.2;
+const DIAGNOSTIC_OVERLAY_PAD = 0.18;
 
 export interface BrickMeshProps {
   brick: BrickInstance;
@@ -21,17 +22,29 @@ export interface BrickMeshProps {
   adjacentLayer?: boolean;
   unstable?: boolean;
   marginal?: boolean;
+  diagnosticMuted?: boolean;
   onClick?: (brick: BrickInstance, shiftKey: boolean) => void;
 }
 
-export function BrickMesh({ brick, faded = false, highlighted = false, yOffset = 0, hidden = false, adjacentLayer = false, unstable = false, marginal = false, onClick }: BrickMeshProps) {
+export function BrickMesh({
+  brick,
+  faded = false,
+  highlighted = false,
+  yOffset = 0,
+  hidden = false,
+  adjacentLayer = false,
+  unstable = false,
+  marginal = false,
+  diagnosticMuted = false,
+  onClick,
+}: BrickMeshProps) {
   const unstableRef = useRef<THREE.MeshBasicMaterial>(null);
 
   // Pulse animation for unstable overlay — skip frame work when not unstable
   useFrame(({ clock }) => {
     if (!unstable || !unstableRef.current) return;
     const t = clock.getElapsedTime();
-    unstableRef.current.opacity = 0.15 + 0.2 * (0.5 + 0.5 * Math.sin(t * 4));
+    unstableRef.current.opacity = 0.32 + 0.22 * (0.5 + 0.5 * Math.sin(t * 4));
   });
   const def = getBrickDef(brick.brickId);
   const dims = useMemo(() => {
@@ -57,11 +70,13 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
   const worldX = brick.position[0] * UNIT;
   const worldY = brick.position[1] * PLATE_HEIGHT + yOffset;
   const worldZ = brick.position[2] * UNIT;
-  const isTransparent = faded || adjacentLayer;
-  const bodyColor = isTransparent
+  const isTransparent = faded || adjacentLayer || diagnosticMuted;
+  const bodyColor = diagnosticMuted
+    ? new THREE.Color('#D6D6D0')
+    : isTransparent
     ? new THREE.Color(brick.color).lerp(new THREE.Color('#F0EFE9'), adjacentLayer ? 0.65 : 0.5)
     : new THREE.Color(brick.color);
-  const bodyOpacity = adjacentLayer ? 0.08 : faded ? 0.55 : 1;
+  const bodyOpacity = diagnosticMuted ? 0.2 : adjacentLayer ? 0.08 : faded ? 0.55 : 1;
 
   // No physical rotation when studWidth/studDepth are set — dimensions are already correct
   const useRotation = brick.studWidth == null;
@@ -78,11 +93,11 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
         <boxGeometry args={[dims.width * UNIT - 0.04, dims.height - 0.02, dims.depth * UNIT - 0.04]} />
         <meshPhongMaterial
           color={bodyColor}
-          shininess={isTransparent ? 20 : 48}
+          shininess={diagnosticMuted ? 8 : isTransparent ? 20 : 48}
           specular="#555555"
           transparent={isTransparent}
           opacity={bodyOpacity}
-          depthWrite={!adjacentLayer}
+          depthWrite={!adjacentLayer && !diagnosticMuted}
         />
       </mesh>
 
@@ -100,11 +115,11 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
                 <cylinderGeometry args={[STUD_RADIUS, STUD_RADIUS, STUD_HEIGHT, 12]} />
                 <meshPhongMaterial
                   color={bodyColor}
-                  shininess={isTransparent ? 20 : 48}
+                  shininess={diagnosticMuted ? 8 : isTransparent ? 20 : 48}
                   specular="#555555"
                   transparent={isTransparent}
                   opacity={bodyOpacity}
-                  depthWrite={!adjacentLayer}
+                  depthWrite={!adjacentLayer && !diagnosticMuted}
                 />
               </mesh>
             );
@@ -112,23 +127,50 @@ export function BrickMesh({ brick, faded = false, highlighted = false, yOffset =
         )}
 
       {highlighted && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial color="#FFD500" transparent opacity={0.22} side={THREE.BackSide} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={8}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial color="#FFD500" transparent opacity={0.28} side={THREE.DoubleSide} depthWrite={false} />
         </mesh>
       )}
 
       {unstable && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial ref={unstableRef} color="#FF4444" transparent opacity={0.25} side={THREE.BackSide} depthWrite={false} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={10}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial
+            ref={unstableRef}
+            color="#FF2D2D"
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthTest={false}
+            depthWrite={false}
+          />
         </mesh>
       )}
 
       {marginal && !unstable && (
-        <mesh position={[0, dims.height / 2, 0]}>
-          <boxGeometry args={[dims.width * UNIT + 0.1, dims.height + 0.1, dims.depth * UNIT + 0.1]} />
-          <meshBasicMaterial color="#FFA500" transparent opacity={0.25} side={THREE.BackSide} depthWrite={false} />
+        <mesh position={[0, dims.height / 2, 0]} renderOrder={9}>
+          <boxGeometry args={[
+            dims.width * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+            dims.height + DIAGNOSTIC_OVERLAY_PAD,
+            dims.depth * UNIT + DIAGNOSTIC_OVERLAY_PAD,
+          ]} />
+          <meshBasicMaterial
+            color="#FF9F1C"
+            transparent
+            opacity={0.42}
+            side={THREE.DoubleSide}
+            depthTest={false}
+            depthWrite={false}
+          />
         </mesh>
       )}
     </group>

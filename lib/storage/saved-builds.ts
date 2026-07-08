@@ -65,7 +65,8 @@ export function saveBuild(
     const now = new Date().toISOString();
 
     // Strip diagnostics — pipeline debug data, not needed for rehydration
-    const { diagnostics: _, ...cleanModel } = model;
+    const cleanModel = { ...model };
+    delete cleanModel.diagnostics;
 
     const existingIdx = existingId
       ? builds.findIndex((b) => b.id === existingId)
@@ -129,6 +130,7 @@ export function deleteBuild(id: string): boolean {
 
 /** Approximate storage usage for display. */
 export function getStorageInfo(): { usedKB: number; buildCount: number } {
+  if (typeof window === 'undefined') return { usedKB: 0, buildCount: 0 };
   const builds = loadAllBuilds();
   const raw = localStorage.getItem(STORAGE_KEY) ?? '';
   return {

@@ -12,7 +12,6 @@ interface EditGridPlaneProps {
   activeLayer: number;
   editTool: EditTool;
   selectedColor: string | null;
-  colorLegend: Record<string, string>;
   onGridCellClick: (gx: number, gy: number, gz: number) => void;
 }
 
@@ -21,7 +20,6 @@ export function EditGridPlane({
   activeLayer,
   editTool,
   selectedColor,
-  colorLegend,
   onGridCellClick,
 }: EditGridPlaneProps) {
   const [hoveredCell, setHoveredCell] = useState<{ gx: number; gy: number } | null>(null);

@@ -5,10 +5,16 @@ import { describe, expect, it } from 'vitest';
 import { preflightMeshPath } from './mesh-preflight';
 
 describe('preflightMeshPath', () => {
-  it('accepts supported formats (.blend, .glb)', async () => {
+  it('accepts supported formats (.blend, .glb, .obj, .stl, .ply)', async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), 'mesh-preflight-'));
     try {
-      for (const [ext, fmt] of [['blend', 'blend'], ['glb', 'glb']] as const) {
+      for (const [ext, fmt] of [
+        ['blend', 'blend'],
+        ['glb', 'glb'],
+        ['obj', 'obj'],
+        ['stl', 'stl'],
+        ['ply', 'ply'],
+      ] as const) {
         const filePath = path.join(dir, `model.${ext}`);
         await writeFile(filePath, 'placeholder');
         const result = await preflightMeshPath(filePath);

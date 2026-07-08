@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { PipelineStage } from '@/lib/pipeline/types';
+import { MESH_UPLOAD_ACCEPT, isSupportedUploadExtension } from '@/lib/pipeline/mesh-formats';
 import { FileDropZone } from './shared/FileDropZone';
 
 interface MeshBounds {
@@ -44,6 +45,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
   const [objectName, setObjectName] = useState('');
   const [hollow, setHollow] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMode, setProcessingMode] = useState<'legacy' | 'stability_v2' | null>(null);
   const [isMeasuring, setIsMeasuring] = useState(false);
 
   const selectFile = useCallback((f: File) => {
@@ -51,7 +53,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
     setBounds(null);
   }, []);
 
-  const acceptBlend = useCallback((f: File) => f.name.toLowerCase().endsWith('.blend'), []);
+  const acceptMesh = useCallback((f: File) => isSupportedUploadExtension(f.name), []);
 
   function clearAll() {
     setFile(null);
@@ -91,10 +93,11 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
     }
   }
 
-  async function handleBuild() {
+  async function handleBuild(brickerEngine: 'legacy' | 'stability_v2' = 'stability_v2') {
     if (!file || !bounds || isProcessing) return;
 
     setIsProcessing(true);
+    setProcessingMode(brickerEngine);
 
     try {
       onStageChange('uploading');
@@ -109,6 +112,8 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
       }
       formData.append('shell', String(hollow));
       formData.append('name', file.name.replace(/\.\w+$/, ''));
+      formData.append('brickerEngine', brickerEngine);
+      formData.append('shadowCompare', String(brickerEngine === 'stability_v2'));
 
       onStageChange('validating');
 
@@ -134,6 +139,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
       onStageChange('error');
     } finally {
       setIsProcessing(false);
+      setProcessingMode(null);
     }
   }
 
@@ -143,11 +149,11 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
   if (!file) {
     return (
       <FileDropZone
-        accept=".blend"
-        acceptFile={acceptBlend}
+        accept={MESH_UPLOAD_ACCEPT}
+        acceptFile={acceptMesh}
         onFile={selectFile}
         disabled={isDisabled}
-        label="Drop a .blend file here"
+        label="Drop a mesh file here"
         hint="or click to browse"
         icon={
           <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#999999" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -278,11 +284,18 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
           {/* Actions */}
           <div className="flex gap-3">
             <button
-              onClick={handleBuild}
+              onClick={() => handleBuild('stability_v2')}
               disabled={isDisabled}
               className="flex-1 py-3 px-7 text-sm font-bold text-white bg-brick-red rounded-button cursor-pointer transition-all duration-200 tracking-[0.3px] disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 active:scale-[0.98]"
             >
-              {isProcessing ? 'Processing...' : 'Build LEGO Model'}
+              {processingMode === 'stability_v2' ? 'Building...' : 'Build LEGO Model'}
+            </button>
+            <button
+              onClick={() => handleBuild('legacy')}
+              disabled={isDisabled}
+              className="flex-1 py-3 px-5 text-sm font-bold text-[#1A1A1A] bg-surface border-2 border-[#DDDDDD] rounded-button cursor-pointer transition-all duration-200 tracking-[0.2px] hover:border-brick-red disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
+            >
+              {processingMode === 'legacy' ? 'Building...' : 'Use Legacy Tiling'}
             </button>
             <button
               onClick={clearAll}

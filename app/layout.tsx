@@ -9,8 +9,8 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'BrickForge — AI-Powered Custom LEGO Set Generator',
-  description: 'Describe anything — we\'ll build it brick by brick with step-by-step instructions and parts list.',
+  title: 'BrickForge — Mesh to LEGO Build Studio',
+  description: 'Upload a mesh or image, inspect build stability, and export BrickForge build data.',
 };
 
 export default function RootLayout({

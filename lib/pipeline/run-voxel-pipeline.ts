@@ -10,9 +10,11 @@ import { randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
-import { voxelGridToBrickModelV2 } from '@/lib/pipeline_v2/stability-bricker';
+import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
+import type { GraphDiagnosticBrickIds, GraphDiagnosticsSummary } from '@/lib/pipeline_v2/brick-graph';
 import { preflightMeshPath, type MeshPreflightResult } from '@/lib/pipeline/mesh-preflight';
 import { checkBrickStability } from '@/lib/pipeline/brick-stability';
+import { buildLayoutDiagnostics } from '@/lib/pipeline/layout-diagnostics';
 import type { BrickModelData } from '@/lib/engine/types';
 import {
   BLENDER_VOXEL_TO_GRID_SCRIPT,
@@ -20,6 +22,7 @@ import {
 } from '@/lib/pipeline/paths';
 import { DEFAULT_VOXEL_SIZE, DEFAULT_SHELL_ENABLED } from '@/lib/pipeline/constants';
 import { PipelineError } from '@/lib/pipeline/errors';
+import { isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 
 // Re-export for backwards compatibility; new code should import from errors.ts.
 export { PipelineError };
@@ -70,7 +73,7 @@ export interface VoxelPipelineOptions {
   name?: string;
   description?: string;
   shell?: boolean;
-  brickerEngine?: 'legacy' | 'stability_v2';
+  brickerEngine?: BrickerVariant;
   shadowCompare?: boolean;
 }
 
@@ -86,8 +89,10 @@ export interface VoxelPipelineResult {
     totalBricks: number;
     shelled: boolean;
     unsupportedBricks: number;
+    layout: GraphDiagnosticsSummary;
+    layoutIds?: GraphDiagnosticBrickIds;
     warnings: string[];
-    brickerEngine?: 'legacy' | 'stability_v2';
+    brickerEngine?: BrickerVariant;
     shadowComparison?: {
       compared: boolean;
       primaryBricks: number;
@@ -111,6 +116,7 @@ export interface VoxelPipelineResult {
       weakAfter: number;
       elapsedMs: number;
     };
+    stabilityV2?: StabilityV2Stats;
   };
 }
 
@@ -197,7 +203,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
   const name = options.name ?? 'Generated Build';
   const description = options.description ?? 'LEGO build generated from 3D model';
   const shell = options.shell ?? DEFAULT_SHELL_ENABLED;
-  const brickerEngine = options.brickerEngine ?? 'legacy';
+    const brickerEngine = options.brickerEngine ?? 'legacy';
   const shadowCompare = options.shadowCompare ?? false;
 
   // Step 0: Validate Blender
@@ -279,29 +285,32 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
     }
 
     const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-    const model = brickerEngine === 'stability_v2'
-      ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell })
+    const model = isStabilityV2Variant(brickerEngine)
+      ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell, variant: brickerEngine })
       : voxelGridToBrickModel(voxelGrid, name, description, { shell });
+    const stabilityV2Stats = (model as BrickModelData & { stabilityV2Stats?: StabilityV2Stats }).stabilityV2Stats;
 
-    // Step 4: Graduated stability check
-    const stability = checkBrickStability(model.bricks);
-    if (stability.warnings.length > 0) {
-      warnings.push(...stability.warnings);
+    // Step 4: Graduated stability and graph diagnostics
+    const layoutDiagnostics = buildLayoutDiagnostics(model.bricks, stabilityV2Stats);
+    if (layoutDiagnostics.stabilityWarnings.length > 0) {
+      warnings.push(...layoutDiagnostics.stabilityWarnings);
+    }
+    if (isStabilityV2Variant(brickerEngine) && (layoutDiagnostics.layout.floatingBricks > 0 || layoutDiagnostics.layout.unsupportedBricks > 0)) {
+      warnings.push(
+        `${brickerEngine}: defects remain after repair. This model may need external support, a larger scale, thicker geometry, or a different orientation.`,
+      );
     }
 
-    // Count completely unsupported bricks (zero support from below)
-    const unsupportedCount = [...stability.brickSupport.values()]
-      .filter(info => info.supportRatio === 0 && info.tier !== 'stable')
-      .length;
+    const unsupportedCount = layoutDiagnostics.unsupportedBricks;
     if (unsupportedCount > 0) {
       console.log(`[stability] ${unsupportedCount} brick(s) have zero support from below`);
     }
 
     let shadowSummary: VoxelPipelineResult['diagnostics']['shadowComparison'] | undefined;
     if (shadowCompare) {
-      const shadowModel = brickerEngine === 'stability_v2'
+      const shadowModel = isStabilityV2Variant(brickerEngine)
         ? voxelGridToBrickModel(voxelGrid, name, description, { shell })
-        : voxelGridToBrickModelV2(voxelGrid, name, description, { shell });
+        : voxelGridToBrickModelV2(voxelGrid, name, description, { shell, variant: 'stability_v2' });
       const shadowStability = checkBrickStability(shadowModel.bricks);
       const shadowUnsupported = [...shadowStability.brickSupport.values()]
         .filter(info => info.supportRatio === 0 && info.tier !== 'stable')
@@ -342,6 +351,8 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         totalBricks: model.totalBricks,
         shelled: shell,
         unsupportedBricks: unsupportedCount,
+        layout: layoutDiagnostics.layout,
+        layoutIds: layoutDiagnostics.layoutIds,
         brickerEngine,
         ...(shadowSummary ? { shadowComparison: shadowSummary } : {}),
         ...(colorDiagnostics ? {
@@ -365,6 +376,7 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
             elapsedMs: refinementStats.elapsedMs,
           },
         } : {}),
+        ...(stabilityV2Stats ? { stabilityV2: stabilityV2Stats } : {}),
       },
     };
   } finally {

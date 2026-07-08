@@ -5,26 +5,23 @@ import { randomUUID } from 'node:crypto';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
+import { SUPPORTED_UPLOAD_FORMATS_LABEL } from '@/lib/pipeline/mesh-formats';
+import { assertSupportedMeshUpload, safeUploadedMeshName } from '@/lib/pipeline/mesh-upload';
+import { isBrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
-
-function isBlenderMagic(buf: Buffer): boolean {
-  if (buf.length < 7) return false;
-  if (buf.subarray(0, 7).toString('ascii') === 'BLENDER') return true;
-  // Gzip-compressed .blend
-  if (buf.length >= 2 && buf[0] === 0x1f && buf[1] === 0x8b) return true;
-  return false;
-}
 
 /**
  * POST /api/upload
  *
  * Accepts multipart/form-data with:
- * - mesh (required): .blend file, max 50 MB
+ * - mesh (required): .blend/.glb/.obj/.stl/.ply file, max 50 MB
  * - voxelSize (optional): 0.02-0.5, default 0.06
  * - objectName (optional): Blender object name
  * - name (optional): build name
  * - shell (optional): boolean, default true
+ * - brickerEngine (optional): legacy | stability_v2 | v2_masks | v2_tree_repair | v2_lexicographic | v2_oracle
+ * - shadowCompare (optional): boolean, default false
  */
 export async function POST(req: NextRequest) {
   // Short-circuit oversized uploads before buffering the body
@@ -42,33 +39,32 @@ export async function POST(req: NextRequest) {
 
     const meshFile = formData.get('mesh') as File | null;
     if (!meshFile || !(meshFile instanceof File)) {
-      throw new PipelineError('INVALID_INPUT', 'Missing required .blend file');
+      throw new PipelineError('INVALID_INPUT', `Missing required mesh file (${SUPPORTED_UPLOAD_FORMATS_LABEL})`);
     }
 
     if (meshFile.size > MAX_UPLOAD_BYTES) {
       throw new PipelineError('UPLOAD_TOO_LARGE', `File exceeds ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit`);
     }
 
-    if (!meshFile.name.toLowerCase().endsWith('.blend')) {
-      throw new PipelineError('UPLOAD_INVALID_FILE', 'Only .blend files are supported for upload');
-    }
+    assertSupportedMeshUpload(meshFile.name);
 
     const voxelSize = parseFloat(formData.get('voxelSize') as string) || 0.06;
     const objectName = (formData.get('objectName') as string) || undefined;
-    const name = (formData.get('name') as string) || meshFile.name.replace(/\.\w+$/, '');
+    const safeFileName = safeUploadedMeshName(meshFile.name);
+    const name = (formData.get('name') as string) || safeFileName.replace(/\.\w+$/, '');
     const shell = (formData.get('shell') as string) !== 'false';
+    const rawBrickerEngine = formData.get('brickerEngine') as string | null;
+    const brickerEngine = rawBrickerEngine && isBrickerVariant(rawBrickerEngine) ? rawBrickerEngine : 'legacy';
+    const shadowCompare = (formData.get('shadowCompare') as string) === 'true';
 
     const meshBytes = Buffer.from(await meshFile.arrayBuffer());
-
-    if (!isBlenderMagic(meshBytes)) {
-      throw new PipelineError('UPLOAD_INVALID_FILE', 'File does not look like a Blender (.blend) file');
-    }
+    assertSupportedMeshUpload(meshFile.name, meshBytes);
 
     const runId = `${Date.now()}-${randomUUID()}`;
     uploadDir = path.join(TMP_UPLOADS_DIR, runId);
     await mkdir(uploadDir, { recursive: true });
 
-    const meshPath = path.join(uploadDir, meshFile.name);
+    const meshPath = path.join(uploadDir, safeFileName);
     await writeFile(meshPath, meshBytes);
 
     const result = await runVoxelPipeline({
@@ -78,6 +74,8 @@ export async function POST(req: NextRequest) {
       name,
       description: `LEGO build of "${name}"`,
       shell,
+      brickerEngine,
+      shadowCompare,
     });
 
     return NextResponse.json({
