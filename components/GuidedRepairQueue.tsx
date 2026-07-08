@@ -39,6 +39,50 @@ function RepairMetricDelta({
   );
 }
 
+function cleanSuggestionTitle(title: string): string {
+  return title.replace(/^Recommended:\s*/i, '').replace(/^Last resort:\s*/i, '');
+}
+
+function recommendationCopy(suggestion: RepairSuggestion): {
+  badge: string;
+  tone: 'good' | 'neutral' | 'caution';
+} {
+  if (suggestion.recommendation === 'recommended') return { badge: 'Best option', tone: 'good' };
+  if (suggestion.recommendation === 'last_resort') return { badge: 'Visible support', tone: 'caution' };
+  return { badge: 'Other option', tone: 'neutral' };
+}
+
+function delta(before: number | undefined, after: number | undefined): number {
+  return (before ?? 0) - (after ?? 0);
+}
+
+function outcomeSummary(suggestion: RepairSuggestion): string {
+  const { before, after } = suggestion.metrics;
+  const detached = delta(before.detachedFloatingBricks ?? before.floatingBricks, after.detachedFloatingBricks ?? after.floatingBricks);
+  const critical = delta(before.criticalCantileverRegions ?? 0, after.criticalCantileverRegions ?? 0);
+  const unsupported = delta(before.unsupportedBricks, after.unsupportedBricks);
+  const weak = delta(before.weakCantilevers, after.weakCantilevers);
+
+  if (detached > 0) return `Reconnects ${detached} floating brick${detached === 1 ? '' : 's'}.`;
+  if (critical > 0) return `Reduces ${critical} critical cantilever region${critical === 1 ? '' : 's'}.`;
+  if (unsupported > 0) return `Adds support under ${unsupported} unsupported brick${unsupported === 1 ? '' : 's'}.`;
+  if (weak > 0) return `Improves ${weak} weak cantilever${weak === 1 ? '' : 's'}.`;
+  return 'Retiles this area for a more stable layout.';
+}
+
+function visualImpactSummary(suggestion: RepairSuggestion): string {
+  const added = suggestion.preview.addedCells.length;
+  const recolored = suggestion.preview.recoloredCells.length;
+  if (suggestion.recommendation === 'last_resort') {
+    return `Visible support path, ${added} added cell${added === 1 ? '' : 's'}.`;
+  }
+  if (added === 0 && recolored === 0) return 'Rebricks the area without adding support cells.';
+  if (added > 0 && recolored > 0) return `${added} added support cell${added === 1 ? '' : 's'}, ${recolored} recolored cell${recolored === 1 ? '' : 's'}.`;
+  if (added > 0) return `${added} added support cell${added === 1 ? '' : 's'}.`;
+  if (recolored > 0) return `${recolored} recolored cell${recolored === 1 ? '' : 's'}.`;
+  return 'Rebricks the area without adding support cells.';
+}
+
 function RepairSuggestionCard({
   suggestion,
   onApply,
@@ -54,11 +98,8 @@ function RepairSuggestionCard({
   isApplying: boolean;
   isBusy: boolean;
 }) {
-  const badge = suggestion.recommendation === 'recommended'
-    ? 'Recommended'
-    : suggestion.recommendation === 'last_resort'
-      ? 'Last resort'
-      : 'Alternative';
+  const { badge, tone } = recommendationCopy(suggestion);
+  const title = cleanSuggestionTitle(suggestion.title);
 
   return (
     <div
@@ -70,18 +111,23 @@ function RepairSuggestionCard({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className={`text-[10px] font-bold uppercase tracking-[0.7px] rounded-full px-2 py-0.5 ${
-              suggestion.recommendation === 'recommended'
+              tone === 'good'
                 ? 'bg-[#E8F5E9] text-[#2E7D32]'
-                : suggestion.recommendation === 'last_resort'
+                : tone === 'caution'
                   ? 'bg-[#FFEBEE] text-[#B71C1C]'
                   : 'bg-[#F5F5F0] text-[#666666]'
             }`}>
               {badge}
             </span>
-            <div className="min-w-0 text-sm font-bold leading-snug text-[#1A1A1A] break-words">{suggestion.title}</div>
+            <div className="min-w-0 text-sm font-bold leading-snug text-[#1A1A1A] break-words">{title}</div>
           </div>
-          <div className="mt-1 text-xs leading-snug text-[#666666] break-words">{suggestion.description}</div>
-          <div className="mt-1 text-[11px] leading-snug text-[#8A5A00] break-words">{suggestion.tradeoff}</div>
+          <div className="mt-2 text-xs font-semibold leading-snug text-[#2E7D32] break-words">{outcomeSummary(suggestion)}</div>
+          <div className="mt-1 text-xs leading-snug text-[#666666] break-words">{visualImpactSummary(suggestion)}</div>
+          {suggestion.recommendation === 'last_resort' && (
+            <div className="mt-1 text-[11px] leading-snug text-[#8A5A00] break-words">
+              Use this only if cleaner repairs do not hold the model.
+            </div>
+          )}
         </div>
         <div className="flex justify-end">
           <button
@@ -93,21 +139,25 @@ function RepairSuggestionCard({
           </button>
         </div>
       </div>
-      <div className="mt-3 grid grid-cols-2 xl:grid-cols-5 gap-2">
-        <RepairMetricDelta label="Detached" before={suggestion.metrics.before.detachedFloatingBricks ?? suggestion.metrics.before.floatingBricks} after={suggestion.metrics.after.detachedFloatingBricks ?? suggestion.metrics.after.floatingBricks} />
-        <RepairMetricDelta label="Unsupported" before={suggestion.metrics.before.unsupportedBricks} after={suggestion.metrics.after.unsupportedBricks} />
-        <RepairMetricDelta label="Critical" before={suggestion.metrics.before.criticalCantileverRegions ?? 0} after={suggestion.metrics.after.criticalCantileverRegions ?? 0} />
-        <RepairMetricDelta label="Health" before={suggestion.metrics.before.healthScore} after={suggestion.metrics.after.healthScore} />
-        <div className="min-w-0">
-          <div className="text-[10px] uppercase tracking-[0.5px] text-[#888888] truncate">Patch edits</div>
-          <div className="text-sm font-bold text-[#444444]">
-            +{suggestion.preview.addedCells.length} / {suggestion.preview.recoloredCells.length}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-[0.7px] text-[#777777]">
+          Details
+        </summary>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <RepairMetricDelta label="Detached" before={suggestion.metrics.before.detachedFloatingBricks ?? suggestion.metrics.before.floatingBricks} after={suggestion.metrics.after.detachedFloatingBricks ?? suggestion.metrics.after.floatingBricks} />
+          <RepairMetricDelta label="Unsupported" before={suggestion.metrics.before.unsupportedBricks} after={suggestion.metrics.after.unsupportedBricks} />
+          <RepairMetricDelta label="Critical" before={suggestion.metrics.before.criticalCantileverRegions ?? 0} after={suggestion.metrics.after.criticalCantileverRegions ?? 0} />
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.5px] text-[#888888] truncate">Add / Recolor</div>
+            <div className="text-sm font-bold text-[#444444]">
+              +{suggestion.preview.addedCells.length} / {suggestion.preview.recoloredCells.length}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="mt-2 text-[11px] leading-snug text-[#777777]">
-        Hover to preview. Apply rebricks with stability_v2.
-      </div>
+        <div className="mt-2 text-[11px] leading-snug text-[#777777] break-words">
+          {suggestion.tradeoff}
+        </div>
+      </details>
     </div>
   );
 }
@@ -216,13 +266,13 @@ export function GuidedRepairQueue({
       <div className="p-5 border-b border-border-subtle bg-white">
       <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
         <div className="min-w-0">
-          <div className="text-xs font-bold uppercase tracking-[1px] text-[#555555]">Repair Queue</div>
+          <div className="text-xs font-bold uppercase tracking-[1px] text-[#555555]">Repair Suggestions</div>
           <div className="text-[12px] text-[#777777] mt-0.5">
-            Weak regions are handled bottom-up, one accepted rebuild at a time.
+            Try one focused change at a time. Some organic builds may still need manual support, a larger scale, or a different pose.
           </div>
         </div>
         <span className="shrink-0 text-[11px] font-semibold text-[#8A5A00] bg-[#FFF8E1] border border-[#FFE082] rounded-full px-2 py-1">
-          Bottom-up
+          Guided
         </span>
       </div>
 
@@ -232,9 +282,8 @@ export function GuidedRepairQueue({
             Issue {Math.min(activeIndex + 1, issues.length)} of {issues.length}
           </div>
           <div className="mt-1 text-sm font-bold leading-snug text-[#1A1A1A] break-words">{activeIssue.title}</div>
-          <div className="mt-1 text-[11px] leading-snug text-[#777777] break-words">{activeIssue.description}</div>
-          <div className="mt-1 text-[10px] font-semibold uppercase tracking-[0.7px] text-[#8A5A00]">
-            {activeIssue.connectionClass.replaceAll('_', ' ')} · {activeIssue.loadAboveStuds} load studs
+          <div className="mt-1 text-[11px] leading-snug text-[#777777] break-words">
+            The highlighted area has weak support. Preview a suggestion before applying it.
           </div>
         </div>
         <div className="mt-3 flex items-center justify-between gap-2">
@@ -256,7 +305,7 @@ export function GuidedRepairQueue({
       </div>
       <details className="mt-3">
         <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-[0.8px] text-[#666666]">
-          Repair preferences
+          Options
         </summary>
         <div className="mt-2 grid gap-2 text-[12px] text-[#555555]">
           <select
