@@ -31,7 +31,7 @@ import math
 import os
 import sys
 from collections import deque
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import bpy
 import bmesh
@@ -48,6 +48,10 @@ from color_quantization import (
     linear_rgb_to_nearest_lego_hex,
     srgb_tuple_to_nearest_lego_hex,
 )
+
+
+def lego_symbol_for_hex(hex_color: str) -> str:
+    return LEGO_COLORS.get(hex_color, "G")
 
 
 def detect_color_source(obj: bpy.types.Object) -> Tuple[str, float, List[str]]:
@@ -109,6 +113,119 @@ def detect_color_source(obj: bpy.types.Object) -> Tuple[str, float, List[str]]:
         return ("flat_principled", 0.8 if unresolved == 0 else 0.65, warnings)
     warnings.append("Could not infer a reliable color source; fallback mapping may be inaccurate.")
     return ("fallback", 0.2, warnings)
+
+
+def _base_color_texture_node(mat: bpy.types.Material) -> Optional[bpy.types.Node]:
+    if not mat.use_nodes or not mat.node_tree:
+        return None
+    principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if principled is None:
+        return None
+    base_color_input = principled.inputs.get("Base Color")
+    if not base_color_input or not base_color_input.is_linked:
+        return None
+    source = base_color_input.links[0].from_node
+    if source.type == 'TEX_IMAGE' and source.image:
+        return source
+    for inp in source.inputs:
+        if inp.is_linked:
+            upstream = inp.links[0].from_node
+            if upstream.type == 'TEX_IMAGE' and upstream.image:
+                return upstream
+    return None
+
+
+def _flat_principled_color(mat: bpy.types.Material) -> Optional[List[float]]:
+    if not mat.use_nodes or not mat.node_tree:
+        return None
+    principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    if principled is None:
+        return None
+    base_color_input = principled.inputs.get("Base Color")
+    if not base_color_input or base_color_input.is_linked:
+        return None
+    rgba = base_color_input.default_value
+    return [round(float(rgba[0]), 4), round(float(rgba[1]), 4), round(float(rgba[2]), 4), round(float(rgba[3]), 4)]
+
+
+def _is_color_texture_candidate(node: bpy.types.Node) -> bool:
+    if node.type != 'TEX_IMAGE' or not node.image:
+        return False
+    name = f"{node.name} {node.image.name}".lower()
+    if any(hint in name for hint in ('basecolor', 'base_color', 'diffuse', 'albedo', 'color', 'colour')):
+        return True
+    return node.image.colorspace_settings.name not in ('Non-Color', 'Raw', 'Linear')
+
+
+def material_audit(mat: bpy.types.Material) -> Dict[str, Any]:
+    texture_node = _base_color_texture_node(mat)
+    flat_color = _flat_principled_color(mat)
+    images = []
+    candidate_images = []
+    node_types: Dict[str, int] = {}
+    if mat.use_nodes and mat.node_tree:
+        for node in mat.node_tree.nodes:
+            node_types[node.type] = node_types.get(node.type, 0) + 1
+            if node.type == 'TEX_IMAGE' and node.image:
+                is_base_color = bool(texture_node and node.name == texture_node.name)
+                if _is_color_texture_candidate(node):
+                    candidate_images.append(node.image.name)
+                images.append({
+                    "node": node.name,
+                    "image": node.image.name,
+                    "size": [int(node.image.size[0]), int(node.image.size[1])],
+                    "colorspace": node.image.colorspace_settings.name,
+                    "isBaseColor": is_base_color,
+                })
+    unwired_candidates = [
+        image["image"]
+        for image in images
+        if image["image"] in candidate_images and not image["isBaseColor"]
+    ]
+    warnings = []
+    if texture_node is None and unwired_candidates:
+        warnings.append("Color-like image textures exist but are not wired to Principled Base Color.")
+    return {
+        "name": mat.name,
+        "useNodes": bool(mat.use_nodes),
+        "nodeTypes": node_types,
+        "baseColorTexture": texture_node.image.name if texture_node and texture_node.image else None,
+        "flatBaseColor": flat_color,
+        "imageTextures": images,
+        "baseColorCandidateTextures": sorted(set(candidate_images)),
+        "unwiredBaseColorCandidates": sorted(set(unwired_candidates)),
+        "unresolved": texture_node is None and flat_color is None,
+        "warnings": warnings,
+    }
+
+
+def mesh_color_audit(obj: bpy.types.Object) -> Dict[str, Any]:
+    mesh = obj.data
+    source_type, source_confidence, warnings = detect_color_source(obj)
+    material_reports = [material_audit(mat) for mat in mesh.materials if mat]
+    for report in material_reports:
+        warnings.extend(report["warnings"])
+    return {
+        "object": obj.name,
+        "mesh": mesh.name,
+        "vertices": len(mesh.vertices),
+        "polygons": len(mesh.polygons),
+        "materials": material_reports,
+        "uvLayers": [layer.name for layer in mesh.uv_layers],
+        "activeUvLayer": mesh.uv_layers.active.name if mesh.uv_layers.active else None,
+        "colorAttributes": [
+            {
+                "name": attr.name,
+                "domain": attr.domain,
+                "dataType": attr.data_type,
+                "activeColor": bool(mesh.color_attributes.active_color and attr.name == mesh.color_attributes.active_color.name),
+            }
+            for attr in mesh.color_attributes
+        ],
+        "detectedSourceType": source_type,
+        "sourceConfidence": round(source_confidence, 4),
+        "warnings": warnings,
+    }
 
 
 # ─── Import non-.blend files ─────────────────────────────────────────────────
@@ -644,6 +761,74 @@ def _make_color_ref(obj: bpy.types.Object) -> bpy.types.Object:
     return ref_obj
 
 
+def run_color_audit(object_name: str, output_path: str, sample_limit: int = 256) -> None:
+    """Inspect material readability and sample source-surface colors without voxelizing."""
+    obj = bpy.data.objects.get(object_name)
+    if obj is None:
+        raise ValueError(f"Object not found: {object_name}")
+
+    original_audit = mesh_color_audit(obj)
+    ref_obj = _make_color_ref(obj)
+    ref_mesh = ref_obj.data
+    bvh = BVHTree.FromObject(ref_obj, bpy.context.evaluated_depsgraph_get())
+
+    effective_audit = mesh_color_audit(ref_obj)
+    sample_points = []
+    face_count = len(ref_mesh.polygons)
+    if face_count > 0:
+        stride = max(1, face_count // sample_limit)
+        for face_index in range(0, face_count, stride):
+            face = ref_mesh.polygons[face_index]
+            center = ref_obj.matrix_world @ face.center
+            sample_points.append(center)
+            if len(sample_points) >= sample_limit:
+                break
+
+    color_dist: Dict[str, int] = {}
+    for point in sample_points:
+        color_hex = sample_color_at_point(bvh, point, ref_mesh, ref_obj)
+        symbol = lego_symbol_for_hex(color_hex)
+        color_dist[symbol] = color_dist.get(symbol, 0) + 1
+
+    total_samples = max(sum(color_dist.values()), 1)
+    achromatic_symbols = {"G", "D", "K", "W", "T"}
+    achromatic_count = sum(count for sym, count in color_dist.items() if sym in achromatic_symbols)
+    entropy = 0.0
+    for count in color_dist.values():
+        p = count / total_samples
+        if p > 0:
+            entropy -= p * math.log2(p)
+
+    audit_warnings = list(dict.fromkeys(original_audit["warnings"] + effective_audit["warnings"]))
+    if total_samples == 1 and not color_dist:
+        audit_warnings.append("No surface samples could be collected.")
+    if achromatic_count / total_samples > 0.95 and entropy < 0.75:
+        audit_warnings.append("Surface audit is mostly achromatic; color capture may be poor.")
+
+    output = {
+        **effective_audit,
+        "originalObject": original_audit["object"],
+        "originalDetectedSourceType": original_audit["detectedSourceType"],
+        "originalSourceConfidence": original_audit["sourceConfidence"],
+        "originalMaterials": original_audit["materials"],
+        "effectiveMaterials": effective_audit["materials"],
+        "sampleLimit": sample_limit,
+        "surfaceSamples": total_samples if color_dist else 0,
+        "sampledPaletteDistribution": color_dist,
+        "sampledPaletteLegend": {sym: SYMBOL_TO_HEX[sym] for sym in color_dist if sym in SYMBOL_TO_HEX},
+        "sampledAchromaticRatio": round(achromatic_count / total_samples, 4),
+        "sampledPaletteEntropy": round(entropy, 4),
+        "warnings": audit_warnings,
+    }
+
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    with open(output_path, "w") as f:
+        json.dump(output, f, indent=2)
+
+    print(f"[OK] Color audit written to {output_path}")
+    bpy.data.objects.remove(ref_obj, do_unlink=True)
+
+
 # ─── Main pipeline ───────────────────────────────────────────────────────────
 
 def run_pipeline(
@@ -752,7 +937,7 @@ def run_pipeline(
             entropy -= p * math.log2(p)
 
     color_warnings = list(source_warnings)
-    if achromatic_ratio > 0.95:
+    if achromatic_ratio > 0.95 and entropy < 0.75:
         color_warnings.append(
             "Output is mostly achromatic; check Base Color texture wiring and image color-space tags."
         )
@@ -805,6 +990,14 @@ def parse_args() -> argparse.Namespace:
         "--bounds-only", action="store_true",
         help="Only compute mesh bounding box dimensions (skip voxelization)",
     )
+    parser.add_argument(
+        "--color-audit-only", action="store_true",
+        help="Only inspect material/color readability and source-surface samples",
+    )
+    parser.add_argument(
+        "--color-audit-samples", type=int, default=256,
+        help="Maximum source-surface samples for --color-audit-only (default: 256)",
+    )
     return parser.parse_args(argv)
 
 
@@ -837,6 +1030,14 @@ def main() -> None:
         with open(args.output, "w") as f:
             json.dump(bounds, f)
         print(f"[OK] Bounds: {bounds['width']} x {bounds['depth']} x {bounds['height']}")
+        return
+
+    if args.color_audit_only:
+        run_color_audit(
+            object_name=obj_name,
+            output_path=args.output,
+            sample_limit=max(1, args.color_audit_samples),
+        )
         return
 
     run_pipeline(
