@@ -7,7 +7,6 @@ import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { TMP_UPLOADS_DIR } from '@/lib/pipeline/paths';
 import { SUPPORTED_UPLOAD_FORMATS_LABEL } from '@/lib/pipeline/mesh-formats';
 import { assertSupportedMeshUpload, safeUploadedMeshName } from '@/lib/pipeline/mesh-upload';
-import { isBrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
 
@@ -20,8 +19,7 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
  * - objectName (optional): Blender object name
  * - name (optional): build name
  * - shell (optional): boolean, default true
- * - brickerEngine (optional): legacy | stability_v2
- * - shadowCompare (optional): boolean, default false
+ * Uses the canonical stability_v2 bricker.
  */
 export async function POST(req: NextRequest) {
   // Short-circuit oversized uploads before buffering the body
@@ -53,10 +51,6 @@ export async function POST(req: NextRequest) {
     const safeFileName = safeUploadedMeshName(meshFile.name);
     const name = (formData.get('name') as string) || safeFileName.replace(/\.\w+$/, '');
     const shell = (formData.get('shell') as string) !== 'false';
-    const rawBrickerEngine = formData.get('brickerEngine') as string | null;
-    const brickerEngine = rawBrickerEngine && isBrickerVariant(rawBrickerEngine) ? rawBrickerEngine : 'legacy';
-    const shadowCompare = (formData.get('shadowCompare') as string) === 'true';
-
     const meshBytes = Buffer.from(await meshFile.arrayBuffer());
     assertSupportedMeshUpload(meshFile.name, meshBytes);
 
@@ -74,8 +68,6 @@ export async function POST(req: NextRequest) {
       name,
       description: `LEGO build of "${name}"`,
       shell,
-      brickerEngine,
-      shadowCompare,
     });
 
     return NextResponse.json({

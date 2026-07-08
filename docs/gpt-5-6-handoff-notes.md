@@ -70,8 +70,21 @@ The main suspected gap is correct: the fragile area is the transition from a vox
 Cleanup note: after these evaluations, the experimental selectable V2 variants
 (`v2_masks`, `v2_tree_repair`, `v2_lexicographic`, and `v2_oracle`) were retired
 from the public engine list because they did not materially improve the target
-repair metrics. The supported comparison surface is now `legacy` versus
-`stability_v2`.
+repair metrics.
+
+Canonical bricker note: a follow-up comparison on all fixtures plus real GLB
+samples showed `stability_v2` had no fixture stability regressions versus
+legacy, improved several fixture health scores, and strongly improved the real
+Charmander/Squirtle samples. The product upload/voxelize path was therefore
+moved to canonical `stability_v2`; legacy remains only as a historical
+benchmark path in eval scripts/utilities.
+
+Real sample comparison at voxel size `0.08`:
+
+| Model | Legacy health | V2 health | Legacy unsupported | V2 unsupported | Legacy weak | V2 weak | Legacy articulations | V2 articulations | Legacy bridges | V2 bridges |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| Charmander | 200457 | 144373 | 31 | 25 | 5 | 2 | 49 | 23 | 64 | 38 |
+| Squirtle | 599537 | 220455 | 102 | 36 | 6 | 5 | 119 | 50 | 189 | 65 |
 
 ### Fixture evaluation
 

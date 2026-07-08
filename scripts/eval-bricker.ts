@@ -6,12 +6,15 @@ import { pathToFileURL } from 'node:url';
 import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
 import { analyzeBrickGraph, summarizeGraphDiagnostics } from '@/lib/pipeline_v2/brick-graph';
-import { BRICKER_VARIANTS, isBrickerVariant, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
+import { BRICKER_VARIANTS, isBrickerVariant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
 import type { BrickModelData, VoxelData } from '@/lib/engine/types';
 import { buildReadinessStatus } from '@/lib/pipeline/build-readiness';
 
+export const EVAL_BRICKER_VARIANTS = ['legacy', ...BRICKER_VARIANTS] as const;
+export type EvalBrickerVariant = 'legacy' | BrickerVariant;
+
 export interface EvalOptions {
-  engines: BrickerVariant[];
+  engines: EvalBrickerVariant[];
   shell: boolean;
   json: boolean;
   verbose: boolean;
@@ -21,8 +24,8 @@ export interface EvalOptions {
 
 export interface EvalRow {
   file: string;
-  engine: BrickerVariant | 'existing';
-  variant: BrickerVariant | 'existing';
+  engine: EvalBrickerVariant | 'existing';
+  variant: EvalBrickerVariant | 'existing';
   voxels: number;
   bricks: number;
   compression: number;
@@ -50,12 +53,16 @@ export interface EvalRow {
 
 function usage(): never {
   console.error([
-    `Usage: npx tsx scripts/eval-bricker.ts <model-or-voxels.json> [...] [--engines ${BRICKER_VARIANTS.join(',')}] [--shell false] [--json] [--verbose] [--deep]`,
+    `Usage: npx tsx scripts/eval-bricker.ts <model-or-voxels.json> [...] [--engines ${EVAL_BRICKER_VARIANTS.join(',')}] [--shell false] [--json] [--verbose] [--deep]`,
     '',
     'Accepts .brickforge.json model files with voxelData or raw voxel grid JSON:',
     '  { "grid": ..., "color_legend": ... }',
   ].join('\n'));
   process.exit(1);
+}
+
+function isEvalBrickerVariant(value: string): value is EvalBrickerVariant {
+  return value === 'legacy' || isBrickerVariant(value);
 }
 
 export function parseArgs(argv: string[]): EvalOptions {
@@ -82,9 +89,9 @@ export function parseArgs(argv: string[]): EvalOptions {
       options.shell = value === 'true';
     } else if (arg === '--engines') {
       const value = argv[++i];
-      const engines = value === 'all' ? [...BRICKER_VARIANTS] : value?.split(',');
-      if (!engines?.length || engines.some((engine) => !isBrickerVariant(engine))) usage();
-      options.engines = engines as BrickerVariant[];
+      const engines = value === 'all' ? [...EVAL_BRICKER_VARIANTS] : value?.split(',');
+      if (!engines?.length || engines.some((engine) => !isEvalBrickerVariant(engine))) usage();
+      options.engines = engines as EvalBrickerVariant[];
     } else if (arg.startsWith('--')) {
       usage();
     } else {
@@ -280,7 +287,7 @@ export async function evaluateFile(filePath: string, options: EvalOptions): Prom
   for (const engine of options.engines) {
     const startedAt = Date.now();
     const model = runQuietly(options.verbose, () => (
-      !isStabilityV2Variant(engine)
+      engine === 'legacy'
         ? voxelGridToBrickModel(voxelGrid, file.replace(/\.\w+$/, ''), `Eval build for ${file}`, { shell: options.shell })
         : voxelGridToBrickModelV2(voxelGrid, file.replace(/\.\w+$/, ''), `Eval build for ${file}`, {
           shell: options.shell,

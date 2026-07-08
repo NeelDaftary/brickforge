@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { normalizeGridZ } from '@/lib/engine/grid-utils';
-import { voxelGridToBrickModel, type VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
+import type { VoxelGrid } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2, type StabilityV2Stats } from '@/lib/pipeline_v2/stability-bricker';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
 import { PipelineError, errorResponse } from '@/lib/pipeline/errors';
 import { buildLayoutDiagnostics } from '@/lib/pipeline/layout-diagnostics';
-import { BRICKER_VARIANTS, isStabilityV2Variant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
+import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
 
 const VoxelRequestSchema = z.object({
   meshPath: z.string().optional(),
@@ -19,8 +19,7 @@ const VoxelRequestSchema = z.object({
   name: z.string().default('Generated Build'),
   description: z.string().default('LEGO build generated from 3D model'),
   shell: z.boolean().default(true),
-  brickerEngine: z.enum(BRICKER_VARIANTS).default('legacy'),
-  shadowCompare: z.boolean().default(false),
+  brickerEngine: z.literal('stability_v2').default('stability_v2'),
 });
 
 function deriveGridSize(grid: string[][][]): number {
@@ -40,7 +39,7 @@ function buildDiagnostics(
   totalBricks: number,
   shell: boolean,
   brickerEngine: BrickerVariant,
-  bricks: ReturnType<typeof voxelGridToBrickModel>['bricks'],
+  bricks: ReturnType<typeof voxelGridToBrickModelV2>['bricks'],
   stabilityV2?: StabilityV2Stats,
 ) {
   const layoutDiagnostics = buildLayoutDiagnostics(bricks, stabilityV2);
@@ -74,7 +73,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const {
-      meshPath, voxelData, voxelSize, objectName, name, description, shell, brickerEngine, shadowCompare,
+      meshPath, voxelData, voxelSize, objectName, name, description, shell, brickerEngine,
     } = VoxelRequestSchema.parse(body);
 
     if (voxelData) {
@@ -85,9 +84,7 @@ export async function POST(req: NextRequest) {
       logGrid(grid, colorLegend);
 
       const voxelGrid: VoxelGrid = { grid, colorLegend, gridSize };
-      const model = isStabilityV2Variant(brickerEngine)
-        ? voxelGridToBrickModelV2(voxelGrid, name, description, { shell, variant: brickerEngine })
-        : voxelGridToBrickModel(voxelGrid, name, description, { shell });
+      const model = voxelGridToBrickModelV2(voxelGrid, name, description, { shell, variant: brickerEngine });
 
       return NextResponse.json({
         ...model,
@@ -113,8 +110,6 @@ export async function POST(req: NextRequest) {
         name,
         description,
         shell,
-        brickerEngine,
-        shadowCompare,
       });
       return NextResponse.json({ ...result.model, diagnostics: result.diagnostics });
     }

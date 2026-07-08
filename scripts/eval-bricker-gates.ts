@@ -1,7 +1,6 @@
 #!/usr/bin/env tsx
 
-import { BRICKER_VARIANTS, isBrickerVariant, type BrickerVariant } from '@/lib/pipeline_v2/variants';
-import { evaluateFiles, printTable, type EvalOptions, type EvalRow } from './eval-bricker';
+import { evaluateFiles, EVAL_BRICKER_VARIANTS, printTable, type EvalBrickerVariant, type EvalOptions, type EvalRow } from './eval-bricker';
 
 interface GateFailure {
   file: string;
@@ -11,7 +10,7 @@ interface GateFailure {
 
 function parseGateArgs(argv: string[]): EvalOptions {
   const files: string[] = [];
-  let engines: BrickerVariant[] = ['legacy', 'stability_v2'];
+  let engines: EvalBrickerVariant[] = ['legacy', 'stability_v2'];
   let json = false;
   let verbose = false;
   let deepRepair = false;
@@ -22,12 +21,12 @@ function parseGateArgs(argv: string[]): EvalOptions {
     else if (arg === '--deep') deepRepair = true;
     else if (arg === '--engines') {
       const value = argv[++i];
-      const parsed = value === 'all' ? [...BRICKER_VARIANTS] : value?.split(',');
-      if (!parsed?.length || parsed.some((engine) => !isBrickerVariant(engine))) {
-        console.error(`Invalid --engines. Use a comma-separated list from: ${BRICKER_VARIANTS.join(',')}`);
+      const parsed = value === 'all' ? [...EVAL_BRICKER_VARIANTS] : value?.split(',');
+      if (!parsed?.length || parsed.some((engine) => !EVAL_BRICKER_VARIANTS.includes(engine as EvalBrickerVariant))) {
+        console.error(`Invalid --engines. Use a comma-separated list from: ${EVAL_BRICKER_VARIANTS.join(',')}`);
         process.exit(1);
       }
-      engines = parsed as BrickerVariant[];
+      engines = parsed as EvalBrickerVariant[];
     } else if (arg.startsWith('--')) {
       console.error('Usage: npx tsx scripts/eval-bricker-gates.ts <fixture-or-sample.json> [...] [--engines all] [--json] [--verbose]');
       process.exit(1);

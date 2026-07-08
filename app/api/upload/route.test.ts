@@ -216,7 +216,7 @@ describe('POST /api/upload', () => {
     expect(runVoxelPipelineMock).not.toHaveBeenCalled();
   });
 
-  it('falls back to legacy for removed experimental bricker engine options', async () => {
+  it('ignores removed bricker engine options and uses the canonical pipeline', async () => {
     const form = new FormData();
     form.append('mesh', blendFile('BLENDER-v30'));
     form.append('brickerEngine', 'v2_tree_repair');
@@ -225,12 +225,9 @@ describe('POST /api/upload', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const res = await POST(formReq(form) as any);
     expect(res.status).toBe(200);
-    expect(runVoxelPipelineMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        brickerEngine: 'legacy',
-        shadowCompare: true,
-      }),
-    );
+    const callArgs = runVoxelPipelineMock.mock.calls[0][0];
+    expect(callArgs).not.toHaveProperty('brickerEngine');
+    expect(callArgs).not.toHaveProperty('shadowCompare');
   });
 
   it('forwards PipelineError from the pipeline with its mapped status code', async () => {

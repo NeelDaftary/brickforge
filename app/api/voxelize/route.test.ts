@@ -4,15 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/pipeline/run-voxel-pipeline', () => ({
   runVoxelPipeline: vi.fn(),
 }));
-vi.mock('@/lib/pipeline/voxel-to-bricks', async () => {
-  const actual = await vi.importActual<typeof import('@/lib/pipeline/voxel-to-bricks')>(
-    '@/lib/pipeline/voxel-to-bricks',
-  );
-  return {
-    ...actual,
-    voxelGridToBrickModel: vi.fn(),
-  };
-});
 vi.mock('@/lib/pipeline_v2/stability-bricker', () => ({
   voxelGridToBrickModelV2: vi.fn(),
 }));
@@ -20,11 +11,9 @@ vi.mock('@/lib/pipeline_v2/stability-bricker', () => ({
 import { POST } from './route';
 import { PipelineError } from '@/lib/pipeline/errors';
 import { runVoxelPipeline } from '@/lib/pipeline/run-voxel-pipeline';
-import { voxelGridToBrickModel } from '@/lib/pipeline/voxel-to-bricks';
 import { voxelGridToBrickModelV2 } from '@/lib/pipeline_v2/stability-bricker';
 
 const runVoxelPipelineMock = vi.mocked(runVoxelPipeline);
-const voxelGridToBrickModelMock = vi.mocked(voxelGridToBrickModel);
 const voxelGridToBrickModelV2Mock = vi.mocked(voxelGridToBrickModelV2);
 
 function makeReq(body: unknown): Parameters<typeof POST>[0] {
@@ -37,7 +26,6 @@ function makeReq(body: unknown): Parameters<typeof POST>[0] {
 
 beforeEach(() => {
   runVoxelPipelineMock.mockReset();
-  voxelGridToBrickModelMock.mockReset();
   voxelGridToBrickModelV2Mock.mockReset();
 });
 
@@ -85,8 +73,8 @@ describe('POST /api/voxelize', () => {
     expect(body.error).toBe('unexpected crash');
   });
 
-  it('passes voxelData through voxelGridToBrickModel and returns diagnostics', async () => {
-    voxelGridToBrickModelMock.mockReturnValue({
+  it('passes voxelData through the canonical v2 bricker and returns diagnostics', async () => {
+    voxelGridToBrickModelV2Mock.mockReturnValue({
       name: 'Generated Build',
       description: 'LEGO build generated from 3D model',
       totalBricks: 3,
@@ -105,7 +93,8 @@ describe('POST /api/voxelize', () => {
     expect(body.diagnostics).toBeDefined();
     expect(body.diagnostics.pipeline).toBe('brickforge-v3');
     expect(body.diagnostics.gridSize).toBe(3);
-    expect(voxelGridToBrickModelMock).toHaveBeenCalledTimes(1);
+    expect(body.diagnostics.brickerEngine).toBe('stability_v2');
+    expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledTimes(1);
   });
 
   it('normalizes empty bottom layers before bricking voxelData', async () => {
@@ -155,7 +144,6 @@ describe('POST /api/voxelize', () => {
     const body = await res.json();
     expect(body.totalBricks).toBe(2);
     expect(body.diagnostics.brickerEngine).toBe('stability_v2');
-    expect(voxelGridToBrickModelMock).not.toHaveBeenCalled();
     expect(voxelGridToBrickModelV2Mock).toHaveBeenCalledTimes(1);
   });
 

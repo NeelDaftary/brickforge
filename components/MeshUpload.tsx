@@ -45,7 +45,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
   const [objectName, setObjectName] = useState('');
   const [hollow, setHollow] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingMode, setProcessingMode] = useState<'legacy' | 'stability_v2' | null>(null);
+  const [isBuilding, setIsBuilding] = useState(false);
   const [isMeasuring, setIsMeasuring] = useState(false);
 
   const selectFile = useCallback((f: File) => {
@@ -93,11 +93,11 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
     }
   }
 
-  async function handleBuild(brickerEngine: 'legacy' | 'stability_v2' = 'stability_v2') {
+  async function handleBuild() {
     if (!file || !bounds || isProcessing) return;
 
     setIsProcessing(true);
-    setProcessingMode(brickerEngine);
+    setIsBuilding(true);
 
     try {
       onStageChange('uploading');
@@ -112,8 +112,6 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
       }
       formData.append('shell', String(hollow));
       formData.append('name', file.name.replace(/\.\w+$/, ''));
-      formData.append('brickerEngine', brickerEngine);
-      formData.append('shadowCompare', String(brickerEngine === 'stability_v2'));
 
       onStageChange('validating');
 
@@ -139,7 +137,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
       onStageChange('error');
     } finally {
       setIsProcessing(false);
-      setProcessingMode(null);
+      setIsBuilding(false);
     }
   }
 
@@ -284,18 +282,11 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
           {/* Actions */}
           <div className="flex gap-3">
             <button
-              onClick={() => handleBuild('stability_v2')}
+              onClick={() => handleBuild()}
               disabled={isDisabled}
               className="flex-1 py-3 px-7 text-sm font-bold text-white bg-brick-red rounded-button cursor-pointer transition-all duration-200 tracking-[0.3px] disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 active:scale-[0.98]"
             >
-              {processingMode === 'stability_v2' ? 'Building...' : 'Build LEGO Model'}
-            </button>
-            <button
-              onClick={() => handleBuild('legacy')}
-              disabled={isDisabled}
-              className="flex-1 py-3 px-5 text-sm font-bold text-[#1A1A1A] bg-surface border-2 border-[#DDDDDD] rounded-button cursor-pointer transition-all duration-200 tracking-[0.2px] hover:border-brick-red disabled:opacity-50 disabled:cursor-not-allowed active:scale-[0.98]"
-            >
-              {processingMode === 'legacy' ? 'Building...' : 'Use Legacy Tiling'}
+              {isBuilding ? 'Building...' : 'Build LEGO Model'}
             </button>
             <button
               onClick={clearAll}
