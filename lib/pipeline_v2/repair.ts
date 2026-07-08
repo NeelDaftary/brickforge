@@ -421,7 +421,7 @@ export function repairStabilityV2(
       patchReason: string;
     }> = [];
 
-    if (defect.reason === 'floating' || defect.reason === 'unsupported') {
+    if (defect.reason === 'detached_floating' || defect.reason === 'floating' || defect.reason === 'unsupported') {
       const supported = addAnchoredSupportColumn(layers, defect.brick, context);
       if (supported) candidates.push({ ...supported, patchType: 'support_column', patchReason: defect.reason });
     }

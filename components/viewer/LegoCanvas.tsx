@@ -1,8 +1,8 @@
 'use client';
 
 import { Canvas } from '@react-three/fiber';
-import { useCallback, useMemo, useState } from 'react';
-import type { BrickModelData } from '@/lib/engine/types';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import type { BrickInstance, BrickModelData, Vector3 } from '@/lib/engine/types';
 import {
   DIAGNOSTIC_OVERLAY_MODES,
   activeDiagnosticOverlay,
@@ -11,10 +11,11 @@ import {
   type DiagnosticOverlayMode,
 } from '@/lib/pipeline/diagnostic-categories';
 import type { GraphDiagnosticBrickIds } from '@/lib/pipeline_v2/brick-graph';
+import type { RepairPreview } from '@/lib/pipeline_v2/guided-repair-v2';
 import { BrickScene, type ViewMode } from './BrickScene';
 import { BuildStepsPanel } from './BuildStepsPanel';
 import { EditToolbar } from './EditToolbar';
-type TopTab = 'complete' | 'step' | 'paint' | 'build';
+type TopTab = 'complete' | 'step' | 'repair' | 'paint' | 'build';
 import { ReferenceImages } from './ReferenceImages';
 import { useVoxelEditor } from './useVoxelEditor';
 
@@ -22,6 +23,8 @@ interface LegoCanvasProps {
   model: BrickModelData;
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
   focusedBrickIds?: string[];
+  repairPanel?: ReactNode;
+  repairPreview?: RepairPreview | null;
   onModelUpdate?: (model: BrickModelData) => void;
 }
 
@@ -46,8 +49,28 @@ function computeModelExtent(model: BrickModelData): number {
   return maxExtent;
 }
 
-export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModelUpdate }: LegoCanvasProps) {
+function previewCellsToBricks(model: BrickModelData, preview?: RepairPreview | null): BrickInstance[] {
+  if (!preview?.addedCells.length || !model.voxelData) return [];
+  const sx = model.voxelData.grid.length;
+  const sy = model.voxelData.grid[0]?.length ?? 0;
+  const cx = sx / 2;
+  const cy = sy / 2;
+  return preview.addedCells.map((cell, index) => ({
+    id: `repair-preview-${cell.x}-${cell.y}-${cell.z}-${index}`,
+    brickId: 'b_1x1',
+    position: [cell.x - cx, cell.z * 3, cell.y - cy] as Vector3,
+    rotation: 0,
+    studWidth: 1,
+    studDepth: 1,
+    color: cell.color,
+    step: cell.z + 1,
+    metadata: { gx: cell.x, gy: cell.z, gz: cell.y, gw: 1, gd: 1, internalSupport: true },
+  }));
+}
+
+export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairPanel, repairPreview, onModelUpdate }: LegoCanvasProps) {
   const [viewMode, setViewMode] = useState<ViewMode>('complete');
+  const [repairMode, setRepairMode] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const [diagnosticOverlayMode, setDiagnosticOverlayMode] = useState<DiagnosticOverlayMode>('off');
   const activeOverlayMode = activeDiagnosticOverlay(diagnosticOverlayMode, diagnosticBrickIds);
@@ -59,12 +82,15 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
   const camZoom = Math.max(10, Math.min(45, 600 / extent));
   const camFar = Math.max(200, camDist * 6);
   const editor = useVoxelEditor({ model, onModelUpdate });
+  const previewBricks = useMemo(() => previewCellsToBricks(model, repairPreview), [model, repairPreview]);
 
   const goPrev = () => {
+    setRepairMode(false);
     setViewMode('step');
     setCurrentStep((s) => Math.max(1, s - 1));
   };
   const goNext = () => {
+    setRepairMode(false);
     setViewMode('step');
     setCurrentStep((s) => Math.min(maxStep, s + 1));
   };
@@ -77,15 +103,24 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
   // Derive which top tab is active
   const activeTab: TopTab = editor.editMode
     ? editor.editTool === 'paint' ? 'paint' : 'build'
+    : repairMode ? 'repair'
     : viewMode === 'step' ? 'step' : 'complete';
 
   const handleTabChange = useCallback((tab: TopTab) => {
     if (tab === 'complete' || tab === 'step') {
       if (editor.editMode && editor.changeCount > 0) return; // don't leave edit with unsaved changes
       if (editor.editMode) cancelEdit();
+      setRepairMode(false);
       setViewMode(tab);
+    } else if (tab === 'repair') {
+      if (!repairPanel) return;
+      if (editor.editMode && editor.changeCount > 0) return;
+      if (editor.editMode) cancelEdit();
+      setRepairMode(true);
+      setViewMode('complete');
     } else if (tab === 'paint') {
       if (!editor.canEdit) return;
+      setRepairMode(false);
       if (editor.editMode) {
         editor.setEditTool('paint');
       } else if (editor.enterEdit('paint')) {
@@ -93,13 +128,14 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
       }
     } else if (tab === 'build') {
       if (!editor.canEdit) return;
+      setRepairMode(false);
       if (editor.editMode) {
         editor.setEditTool('add');
       } else if (editor.enterEdit('add')) {
         setViewMode('complete');
       }
     }
-  }, [cancelEdit, editor]);
+  }, [cancelEdit, editor, repairPanel]);
 
   return (
     <div className="w-full rounded-card border-2 border-border bg-surface overflow-hidden lg:flex">
@@ -135,6 +171,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
               diagnosticBrickIds={diagnosticBrickIds}
               diagnosticOverlayMode={activeOverlayMode}
               focusedBrickIds={focusedBrickIds}
+              previewBricks={previewBricks}
             />
           </Canvas>
 
@@ -142,6 +179,9 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
             {([
               { tab: 'complete' as TopTab, label: 'Complete' },
               { tab: 'step' as TopTab, label: 'Step' },
+              ...(repairPanel ? [
+                { tab: 'repair' as TopTab, label: 'Repair' },
+              ] : []),
               ...(editor.canEdit ? [
                 { tab: 'paint' as TopTab, label: 'Paint' },
                 { tab: 'build' as TopTab, label: 'Build' },
@@ -231,7 +271,13 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, onModel
         )}
       </div>
       {!editor.editMode && (
-        <BuildStepsPanel model={editor.displayModel} currentStep={currentStep} maxStep={maxStep} onPrev={goPrev} onNext={goNext} />
+        repairMode && repairPanel ? (
+          <aside className="w-full lg:w-[380px] shrink-0 flex flex-col">
+            {repairPanel}
+          </aside>
+        ) : (
+          <BuildStepsPanel model={editor.displayModel} currentStep={currentStep} maxStep={maxStep} onPrev={goPrev} onNext={goNext} />
+        )
       )}
     </div>
   );

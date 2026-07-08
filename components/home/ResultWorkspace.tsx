@@ -5,6 +5,7 @@ import { BuildHealth } from '@/components/BuildHealth';
 import { GuidedRepairQueue } from '@/components/GuidedRepairQueue';
 import { LegoCanvas } from '@/components/viewer/LegoCanvas';
 import type { GeneratedModel } from '@/lib/pipeline/model-diagnostics';
+import type { RepairPreview } from '@/lib/pipeline_v2/guided-repair-v2';
 
 interface ResultWorkspaceProps {
   model: GeneratedModel;
@@ -49,6 +50,7 @@ export function ResultWorkspace({
   onError,
 }: ResultWorkspaceProps) {
   const [focusedBrickIds, setFocusedBrickIds] = useState<string[]>([]);
+  const [repairPreview, setRepairPreview] = useState<RepairPreview | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [exportingSTL, setExportingSTL] = useState(false);
   const exportMenuRef = useRef<HTMLDivElement>(null);
@@ -112,18 +114,23 @@ export function ResultWorkspace({
         </div>
       ))}
       <BuildHealth diagnostics={model.diagnostics} />
-      <GuidedRepairQueue
-        model={model}
-        onApply={(newModel) => {
-          onModelChange(newModel);
-          onSaveMessage('Repair applied. Review the build before saving.');
-        }}
-        onFocusBrickIds={setFocusedBrickIds}
-      />
       <LegoCanvas
         model={model}
         diagnosticBrickIds={model.diagnostics?.layoutIds}
         focusedBrickIds={focusedBrickIds}
+        repairPreview={repairPreview}
+        repairPanel={(
+          <GuidedRepairQueue
+            model={model}
+            onApply={(newModel) => {
+              setRepairPreview(null);
+              onModelChange(newModel);
+              onSaveMessage('Repair applied. Review the build before saving.');
+            }}
+            onFocusBrickIds={setFocusedBrickIds}
+            onPreview={setRepairPreview}
+          />
+        )}
         onModelUpdate={(newModel) => {
           onModelChange({ ...model, ...newModel });
         }}

@@ -13,12 +13,14 @@ export interface DiagnosticCategoryDefinition {
 }
 
 export const DIAGNOSTIC_CATEGORIES: readonly DiagnosticCategoryDefinition[] = [
-  { key: 'floating', label: 'Floating', shortLabel: 'Floating', layoutKey: 'floatingBricks', severity: 'danger' },
+  { key: 'detachedFloating', label: 'Detached floating', shortLabel: 'Detached', layoutKey: 'detachedFloatingBricks', severity: 'danger' },
   { key: 'unsupported', label: 'Unsupported', shortLabel: 'Unsupported', layoutKey: 'unsupportedBricks', severity: 'danger' },
+  { key: 'criticalCantilever', label: 'Critical cantilevers', shortLabel: 'Critical', layoutKey: 'criticalCantileverRegions', severity: 'danger' },
   { key: 'weakCantilever', label: 'Weak cantilevers', shortLabel: 'Weak', layoutKey: 'weakCantilevers', severity: 'danger' },
   { key: 'oracle', label: 'Oracle failures', shortLabel: 'Oracle', severity: 'danger' },
   { key: 'articulation', label: 'Articulations', shortLabel: 'Joint', layoutKey: 'articulationBricks', severity: 'warning' },
   { key: 'bridge', label: 'Bridge edges', shortLabel: 'Bridge', layoutKey: 'bridgeEdges', severity: 'warning' },
+  { key: 'attachedCantilever', label: 'Attached cantilevers', shortLabel: 'Attached', layoutKey: 'attachedCantileverBricks', severity: 'info' },
   { key: 'supportedCantilever', label: 'Supported cantilevers', shortLabel: 'Cantilever', layoutKey: 'supportedCantilevers', severity: 'info' },
   { key: 'internalSupport', label: 'Internal supports', shortLabel: 'Int support', layoutKey: 'internalSupportVoxels', severity: 'info' },
 ] as const;

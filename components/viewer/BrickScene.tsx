@@ -47,6 +47,7 @@ interface BrickSceneProps {
   diagnosticBrickIds?: Partial<GraphDiagnosticBrickIds>;
   diagnosticOverlayMode?: DiagnosticOverlayMode;
   focusedBrickIds?: string[];
+  previewBricks?: BrickInstance[];
 }
 
 export function BrickScene({
@@ -66,6 +67,7 @@ export function BrickScene({
   diagnosticBrickIds,
   diagnosticOverlayMode = 'off',
   focusedBrickIds,
+  previewBricks = [],
 }: BrickSceneProps) {
   // Layer view only applies to add/erase — paint mode shows all layers
   const hasLayerView = editMode && activeLayer != null && editTool !== 'paint';
@@ -146,6 +148,14 @@ export function BrickScene({
           />
         );
       })}
+
+      {previewBricks.map((brick) => (
+        <BrickMesh
+          key={brick.id}
+          brick={brick}
+          ghost
+        />
+      ))}
 
       {editMode && editGrid && editTool && editTool !== 'paint' && activeLayer != null && onGridCellClick && (
         <EditGridPlane

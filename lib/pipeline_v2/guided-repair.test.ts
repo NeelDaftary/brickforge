@@ -147,7 +147,7 @@ describe('guided repair suggestions', () => {
     const before = summarizeGraphDiagnostics(analyzeBrickGraph(model.bricks));
 
     const footprint = buildGuidedRepairIssues(model)
-      .find((issue) => issue.defectType === 'weak_cantilever')
+      .find((issue) => issue.defectType === 'critical_cantilever')
       ?.suggestions.find((suggestion) => (
       suggestion.title === 'Support this brick footprint'
     ));

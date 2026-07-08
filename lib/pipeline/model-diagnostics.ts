@@ -27,7 +27,11 @@ export interface ModelDiagnostics {
   layout?: {
     connectedComponents?: number;
     floatingBricks?: number;
+    detachedFloatingBricks?: number;
     unsupportedBricks?: number;
+    attachedCantileverBricks?: number;
+    criticalCantileverRegions?: number;
+    loadWeightedUnsupportedPct?: number;
     supportedCantilevers?: number;
     weakCantilevers?: number;
     articulationBricks?: number;
@@ -43,7 +47,10 @@ export interface ModelDiagnostics {
   };
   layoutIds?: {
     floating?: string[];
+    detachedFloating?: string[];
     unsupported?: string[];
+    attachedCantilever?: string[];
+    criticalCantilever?: string[];
     weakCantilever?: string[];
     supportedCantilever?: string[];
     articulation?: string[];

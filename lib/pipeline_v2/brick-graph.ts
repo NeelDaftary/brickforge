@@ -40,12 +40,18 @@ export interface GraphDiagnostics {
   brickCount: number;
   connectedComponents: string[][];
   anchoredBrickIds: Set<string>;
+  contactAnchoredBrickIds: Set<string>;
   floatingBrickIds: Set<string>;
+  detachedFloatingBrickIds: Set<string>;
+  attachedCantileverBrickIds: Set<string>;
+  criticalCantileverBrickIds: Set<string>;
   articulationBrickIds: Set<string>;
   bridgeEdges: ConnectionEdge[];
   unsupportedBrickIds: Set<string>;
   cantileveredBrickIds: Set<string>;
   weakCantileverBrickIds: Set<string>;
+  connectionClassByBrickId: Map<string, StabilityConnectionClass>;
+  loadWeightedUnsupportedPct: number;
   support: Map<string, BrickSupportDiagnostic>;
   loadAbove: Map<string, { dependentBrickCount: number; loadAboveStuds: number }>;
   seamAlignment: {
@@ -60,7 +66,11 @@ export interface GraphDiagnosticsSummary {
   connectedComponents: number;
   largestComponentBricks: number;
   floatingBricks: number;
+  detachedFloatingBricks?: number;
   unsupportedBricks: number;
+  attachedCantileverBricks?: number;
+  criticalCantileverRegions?: number;
+  loadWeightedUnsupportedPct?: number;
   supportedCantilevers: number;
   weakCantilevers: number;
   articulationBricks: number;
@@ -75,7 +85,10 @@ export interface GraphDiagnosticsSummary {
 
 export interface GraphDiagnosticBrickIds {
   floating: string[];
+  detachedFloating: string[];
   unsupported: string[];
+  attachedCantilever: string[];
+  criticalCantilever: string[];
   weakCantilever: string[];
   supportedCantilever: string[];
   articulation: string[];
@@ -89,7 +102,17 @@ export interface AttachmentTree {
   childrenByBrickId: Map<string, Set<string>>;
 }
 
-export type WeakRegionType = 'floating' | 'unsupported' | 'weak_cantilever' | 'articulation' | 'bridge';
+export type StabilityConnectionClass = 'detached_floating' | 'unsupported' | 'attached_cantilever' | 'weak_cantilever' | 'stable';
+
+export type WeakRegionType =
+  'detached_floating' |
+  'floating' |
+  'unsupported' |
+  'attached_cantilever' |
+  'critical_cantilever' |
+  'weak_cantilever' |
+  'articulation' |
+  'bridge';
 
 export interface WeakRegionDiagnostic {
   defectType: WeakRegionType;
@@ -251,7 +274,7 @@ export function buildBrickGraph(bricks: BrickInstance[]): BrickGraph {
   };
 }
 
-function structuralAdjacency(graph: BrickGraph): Map<string, Set<string>> {
+function structuralAdjacency(graph: BrickGraph, options: { includeHorizontal?: boolean } = {}): Map<string, Set<string>> {
   const adjacency = new Map<string, Set<string>>();
   const ensure = (id: string) => {
     let set = adjacency.get(id);
@@ -266,7 +289,7 @@ function structuralAdjacency(graph: BrickGraph): Map<string, Set<string>> {
   for (const brick of graph.bricks) ensure(brick.id);
 
   for (const edge of graph.edges) {
-    if (edge.type === 'horizontal') continue;
+    if (edge.type === 'horizontal' && !options.includeHorizontal) continue;
     ensure(edge.from).add(edge.to);
     ensure(edge.to).add(edge.from);
   }
@@ -537,8 +560,10 @@ export function rankWeakRegions(graph: BrickGraph, diagnostics = analyzeBrickGra
     if (!existing || compareSeverity(region.severity, existing.severity) > 0) regions.set(id, region);
   };
 
-  for (const id of diagnostics.floatingBrickIds) addRegion('floating', id, 5);
+  for (const id of diagnostics.detachedFloatingBrickIds) addRegion('detached_floating', id, 6);
+  for (const id of diagnostics.criticalCantileverBrickIds) addRegion('critical_cantilever', id, 5);
   for (const id of diagnostics.unsupportedBrickIds) addRegion('unsupported', id, 4);
+  for (const id of diagnostics.attachedCantileverBrickIds) addRegion('attached_cantilever', id, 3);
   for (const id of diagnostics.weakCantileverBrickIds) addRegion('weak_cantilever', id, 3);
   for (const id of diagnostics.articulationBrickIds) addRegion('articulation', id, 2);
   for (const edge of diagnostics.bridgeEdges) {
@@ -556,19 +581,87 @@ function compareSeverity(a: WeakRegionDiagnostic['severity'], b: WeakRegionDiagn
   return 0;
 }
 
+function classifyConnection(
+  brick: GraphBrick,
+  supportAnchored: Set<string>,
+  contactAnchored: Set<string>,
+  support: BrickSupportDiagnostic,
+): StabilityConnectionClass {
+  if (!contactAnchored.has(brick.id)) return 'detached_floating';
+  if (support.classification === 'unsupported') {
+    return supportAnchored.has(brick.id) ? 'unsupported' : 'attached_cantilever';
+  }
+  if (support.classification === 'weak_cantilever') return 'weak_cantilever';
+  if (support.classification === 'supported_cantilever' && !supportAnchored.has(brick.id)) return 'attached_cantilever';
+  return 'stable';
+}
+
+function isCriticalCantilever(
+  brick: GraphBrick,
+  support: BrickSupportDiagnostic,
+  load: { dependentBrickCount: number; loadAboveStuds: number },
+  connectionClass: StabilityConnectionClass,
+): boolean {
+  if (connectionClass !== 'attached_cantilever' && connectionClass !== 'weak_cantilever') return false;
+  const longUnsupportedRun = support.longestUnsupportedRun >= Math.max(3, Math.ceil(Math.max(brick.w, brick.d) / 2));
+  return load.loadAboveStuds >= 16 ||
+    load.dependentBrickCount >= 8 ||
+    (brick.area >= 4 && longUnsupportedRun);
+}
+
+function computeLoadWeightedUnsupportedPct(
+  graph: BrickGraph,
+  loadAbove: Map<string, { dependentBrickCount: number; loadAboveStuds: number }>,
+  support: Map<string, BrickSupportDiagnostic>,
+): number {
+  let total = 0;
+  let weightedUnsupported = 0;
+
+  for (const brick of graph.bricks) {
+    const load = loadAbove.get(brick.id)?.loadAboveStuds ?? 0;
+    const weight = brick.area + load;
+    total += weight;
+    const classification = support.get(brick.id)?.classification;
+    if (classification === 'unsupported' || classification === 'weak_cantilever') {
+      weightedUnsupported += weight;
+    }
+  }
+
+  if (total === 0) return 0;
+  return Math.round((weightedUnsupported / total) * 1000) / 10;
+}
+
 export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDiagnostics {
   const graph = Array.isArray(input) ? buildBrickGraph(input) : input;
   const adjacency = structuralAdjacency(graph);
+  const contactAdjacency = structuralAdjacency(graph, { includeHorizontal: true });
   const edgeLookup = new Map(graph.edges.map((edge) => [edgeKey(edge.from, edge.to, edge.type), edge]));
   const anchoredBrickIds = connectedFromRoot(adjacency);
-  const components = connectedComponents(graph, adjacency);
+  const contactAnchoredBrickIds = connectedFromRoot(contactAdjacency);
+  const components = connectedComponents(graph, contactAdjacency);
   const { articulations, bridges } = articulationAndBridges(adjacency, edgeLookup);
 
+  const loadAbove = computeLoadAbove(graph);
   const unsupportedBrickIds = new Set<string>();
   const cantileveredBrickIds = new Set<string>();
   const weakCantileverBrickIds = new Set<string>();
+  const detachedFloatingBrickIds = new Set<string>();
+  const attachedCantileverBrickIds = new Set<string>();
+  const criticalCantileverBrickIds = new Set<string>();
+  const connectionClassByBrickId = new Map<string, StabilityConnectionClass>();
 
-  for (const [id, support] of graph.support) {
+  for (const brick of graph.bricks) {
+    const support = graph.support.get(brick.id);
+    if (!support) continue;
+    const connectionClass = classifyConnection(brick, anchoredBrickIds, contactAnchoredBrickIds, support);
+    connectionClassByBrickId.set(brick.id, connectionClass);
+    if (connectionClass === 'detached_floating') detachedFloatingBrickIds.add(brick.id);
+    if (connectionClass === 'attached_cantilever') attachedCantileverBrickIds.add(brick.id);
+    if (isCriticalCantilever(brick, support, loadAbove.get(brick.id) ?? { dependentBrickCount: 0, loadAboveStuds: 0 }, connectionClass)) {
+      criticalCantileverBrickIds.add(brick.id);
+    }
+
+    const id = brick.id;
     if (support.classification === 'unsupported') unsupportedBrickIds.add(id);
     if (support.classification === 'supported_cantilever') cantileveredBrickIds.add(id);
     if (support.classification === 'weak_cantilever') weakCantileverBrickIds.add(id);
@@ -578,14 +671,20 @@ export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDia
     brickCount: graph.bricks.length,
     connectedComponents: components,
     anchoredBrickIds,
-    floatingBrickIds: new Set(graph.bricks.filter((brick) => !anchoredBrickIds.has(brick.id)).map((brick) => brick.id)),
+    contactAnchoredBrickIds,
+    floatingBrickIds: new Set(detachedFloatingBrickIds),
+    detachedFloatingBrickIds,
+    attachedCantileverBrickIds,
+    criticalCantileverBrickIds,
     articulationBrickIds: articulations,
     bridgeEdges: bridges,
     unsupportedBrickIds,
     cantileveredBrickIds,
     weakCantileverBrickIds,
+    connectionClassByBrickId,
+    loadWeightedUnsupportedPct: computeLoadWeightedUnsupportedPct(graph, loadAbove, graph.support),
     support: graph.support,
-    loadAbove: computeLoadAbove(graph),
+    loadAbove,
     seamAlignment: computeSeamAlignment(graph),
     weakRegions: [],
   };
@@ -594,11 +693,18 @@ export function analyzeBrickGraph(input: BrickGraph | BrickInstance[]): GraphDia
 }
 
 export function scoreGraphDiagnostics(diagnostics: Pick<GraphDiagnosticsSummary,
-  'floatingBricks' | 'unsupportedBricks' | 'weakCantilevers' | 'articulationBricks' | 'bridgeEdges' | 'seamAlignment'
+  'floatingBricks' |
+  'unsupportedBricks' |
+  'weakCantilevers' |
+  'criticalCantileverRegions' |
+  'articulationBricks' |
+  'bridgeEdges' |
+  'seamAlignment'
 > & { brickCount?: number }): number {
   return (
     diagnostics.floatingBricks * 10000 +
     diagnostics.unsupportedBricks * 5000 +
+    (diagnostics.criticalCantileverRegions ?? 0) * 2000 +
     diagnostics.weakCantilevers * 800 +
     diagnostics.articulationBricks * 250 +
     diagnostics.bridgeEdges * 200 +
@@ -608,10 +714,10 @@ export function scoreGraphDiagnostics(diagnostics: Pick<GraphDiagnosticsSummary,
 }
 
 function gateStatusFor(summary: Pick<GraphDiagnosticsSummary,
-  'floatingBricks' | 'unsupportedBricks' | 'weakCantilevers' | 'articulationBricks' | 'bridgeEdges'
+  'floatingBricks' | 'unsupportedBricks' | 'weakCantilevers' | 'criticalCantileverRegions' | 'articulationBricks' | 'bridgeEdges'
 >): GraphDiagnosticsSummary['gateStatus'] {
-  if (summary.floatingBricks > 0 || summary.unsupportedBricks > 0) return 'fail';
-  if (summary.weakCantilevers > 0 || summary.articulationBricks > 0 || summary.bridgeEdges > 0) return 'warn';
+  if (summary.floatingBricks > 0 || (summary.criticalCantileverRegions ?? 0) > 0) return 'fail';
+  if (summary.unsupportedBricks > 0 || summary.weakCantilevers > 0 || summary.articulationBricks > 0 || summary.bridgeEdges > 0) return 'warn';
   return 'pass';
 }
 
@@ -628,7 +734,11 @@ export function summarizeGraphDiagnostics(
     connectedComponents: diagnostics.connectedComponents.length,
     largestComponentBricks: Math.max(0, ...diagnostics.connectedComponents.map((component) => component.length)),
     floatingBricks: diagnostics.floatingBrickIds.size,
+    detachedFloatingBricks: diagnostics.detachedFloatingBrickIds.size,
     unsupportedBricks: diagnostics.unsupportedBrickIds.size,
+    attachedCantileverBricks: diagnostics.attachedCantileverBrickIds.size,
+    criticalCantileverRegions: diagnostics.criticalCantileverBrickIds.size,
+    loadWeightedUnsupportedPct: diagnostics.loadWeightedUnsupportedPct,
     supportedCantilevers: diagnostics.cantileveredBrickIds.size,
     weakCantilevers: diagnostics.weakCantileverBrickIds.size,
     articulationBricks: diagnostics.articulationBrickIds.size,
@@ -658,7 +768,10 @@ export function summarizeGraphDiagnosticBrickIds(
 
   return {
     floating: [...diagnostics.floatingBrickIds],
+    detachedFloating: [...diagnostics.detachedFloatingBrickIds],
     unsupported: [...diagnostics.unsupportedBrickIds],
+    attachedCantilever: [...diagnostics.attachedCantileverBrickIds],
+    criticalCantilever: [...diagnostics.criticalCantileverBrickIds],
     weakCantilever: [...diagnostics.weakCantileverBrickIds],
     supportedCantilever: [...diagnostics.cantileveredBrickIds],
     articulation: [...diagnostics.articulationBrickIds],

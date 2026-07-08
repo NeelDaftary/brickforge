@@ -37,7 +37,7 @@ describe('brick graph diagnostics', () => {
     expect(diagnostics.cantileveredBrickIds.has('overhang')).toBe(true);
   });
 
-  it('classifies bricks with no vertical contact as unsupported and floating', () => {
+  it('classifies bricks with no contact path as unsupported and detached floating', () => {
     const bricks = [
       brick('base', { x: 0, y: 0, z: 0, w: 2, d: 2 }),
       brick('floating', { x: 5, y: 0, z: 1, w: 2, d: 2 }),
@@ -48,7 +48,30 @@ describe('brick graph diagnostics', () => {
     expect(diagnostics.support.get('floating')?.classification).toBe('unsupported');
     expect(diagnostics.unsupportedBrickIds.has('floating')).toBe(true);
     expect(diagnostics.floatingBrickIds.has('floating')).toBe(true);
+    expect(diagnostics.detachedFloatingBrickIds.has('floating')).toBe(true);
+    expect(diagnostics.connectionClassByBrickId.get('floating')).toBe('detached_floating');
     expect(diagnostics.connectedComponents).toHaveLength(2);
+  });
+
+  it('classifies side-attached unsupported tail bricks as attached cantilevers, not detached floating', () => {
+    const bricks = [
+      brick('base', { x: 0, y: 0, z: 0, w: 2, d: 2 }),
+      brick('body', { x: 0, y: 0, z: 1, w: 2, d: 2 }),
+      brick('tail', { x: 2, y: 0, z: 1, w: 2, d: 1 }),
+    ];
+
+    const diagnostics = analyzeBrickGraph(bricks);
+    const summary = summarizeGraphDiagnostics(diagnostics);
+
+    expect(diagnostics.support.get('tail')?.classification).toBe('unsupported');
+    expect(diagnostics.unsupportedBrickIds.has('tail')).toBe(true);
+    expect(diagnostics.floatingBrickIds.has('tail')).toBe(false);
+    expect(diagnostics.detachedFloatingBrickIds.has('tail')).toBe(false);
+    expect(diagnostics.attachedCantileverBrickIds.has('tail')).toBe(true);
+    expect(diagnostics.connectionClassByBrickId.get('tail')).toBe('attached_cantilever');
+    expect(summary.detachedFloatingBricks).toBe(0);
+    expect(summary.attachedCantileverBricks).toBe(1);
+    expect(summary.connectedComponents).toBe(1);
   });
 
   it('builds weighted vertical edges from stud overlap', () => {
@@ -117,7 +140,7 @@ describe('brick graph diagnostics', () => {
     expect(descendantIds(tree, 'child')).toEqual(new Set(['grandchild']));
   });
 
-  it('ranks weak regions with floating defects first', () => {
+  it('ranks weak regions with detached floating defects first', () => {
     const diagnostics = analyzeBrickGraph([
       brick('base', { x: 0, y: 0, z: 0, w: 2, d: 2 }),
       brick('floating', { x: 5, y: 0, z: 1, w: 2, d: 2 }),
@@ -125,7 +148,7 @@ describe('brick graph diagnostics', () => {
     ]);
 
     expect(diagnostics.weakRegions[0]).toMatchObject({
-      defectType: 'floating',
+      defectType: 'detached_floating',
       primaryBrickId: 'floating',
     });
   });

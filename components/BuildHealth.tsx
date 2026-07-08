@@ -12,11 +12,12 @@ export function BuildHealth({ diagnostics }: { diagnostics?: ModelDiagnostics })
 
   const totalBricks = diagnostics?.totalBricks ?? 0;
   const unsupported = layout.unsupportedBricks ?? 0;
-  const floating = layout.floatingBricks ?? 0;
+  const floating = layout.detachedFloatingBricks ?? layout.floatingBricks ?? 0;
   const weak = layout.weakCantilevers ?? 0;
+  const criticalCantilever = layout.criticalCantileverRegions ?? 0;
   const unsupportedLimit = prototypeUnsupportedLimit(totalBricks);
   const weakLimit = prototypeWeakLimit(totalBricks);
-  const readiness = buildReadinessStatus({ totalBricks, floating, unsupported, weak });
+  const readiness = buildReadinessStatus({ totalBricks, floating, unsupported, weak, criticalCantilever });
   const readinessLabel = readiness === 'ready'
     ? 'Ready to build'
     : readiness === 'prototype'
@@ -30,9 +31,11 @@ export function BuildHealth({ diagnostics }: { diagnostics?: ModelDiagnostics })
   const guidance = readiness === 'ready'
     ? 'No floating or unsupported bricks detected. This is a good candidate for a physical build.'
     : readiness === 'prototype'
-      ? `Floating is zero and unsupported is within the prototype limit (${unsupported}/${unsupportedLimit}). Inspect weak spots before building.`
+      ? `Detached floating is zero and unsupported is within the prototype limit (${unsupported}/${unsupportedLimit}). Inspect cantilevers before building.`
       : floating > 0
-        ? 'Floating bricks remain. Add internal/external support, increase scale, thicken geometry, or reorient before building.'
+        ? 'Detached floating bricks remain. Reconnect them to the build, increase scale, thicken geometry, or reorient before building.'
+        : criticalCantilever > 0
+          ? 'Critical cantilever regions remain. Strengthen the attachment root, add hidden bracing, or approve a stronger visible repair.'
         : `Unsupported or weak spots exceed the prototype limits (${unsupported}/${unsupportedLimit} unsupported, ${weak}/${weakLimit} weak).`;
 
   const metrics = buildHealthMetrics(layout);

@@ -9,7 +9,7 @@ import {
 
 describe('diagnostic categories', () => {
   it('chooses the first populated diagnostic category for auto overlay', () => {
-    expect(activeDiagnosticOverlay('auto', { unsupported: ['u1'], floating: ['f1'] })).toBe('floating');
+    expect(activeDiagnosticOverlay('auto', { unsupported: ['u1'], detachedFloating: ['f1'] })).toBe('detachedFloating');
     expect(activeDiagnosticOverlay('auto', { bridge: ['b1'] })).toBe('bridge');
     expect(activeDiagnosticOverlay('auto', {})).toBe('off');
   });

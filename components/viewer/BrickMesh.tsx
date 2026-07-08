@@ -22,6 +22,7 @@ export interface BrickMeshProps {
   adjacentLayer?: boolean;
   unstable?: boolean;
   marginal?: boolean;
+  ghost?: boolean;
   diagnosticMuted?: boolean;
   onClick?: (brick: BrickInstance, shiftKey: boolean) => void;
 }
@@ -35,6 +36,7 @@ export function BrickMesh({
   adjacentLayer = false,
   unstable = false,
   marginal = false,
+  ghost = false,
   diagnosticMuted = false,
   onClick,
 }: BrickMeshProps) {
@@ -70,13 +72,15 @@ export function BrickMesh({
   const worldX = brick.position[0] * UNIT;
   const worldY = brick.position[1] * PLATE_HEIGHT + yOffset;
   const worldZ = brick.position[2] * UNIT;
-  const isTransparent = faded || adjacentLayer || diagnosticMuted;
+  const isTransparent = faded || adjacentLayer || diagnosticMuted || ghost;
   const bodyColor = diagnosticMuted
     ? new THREE.Color('#D6D6D0')
+    : ghost
+    ? new THREE.Color(brick.color).lerp(new THREE.Color('#EAF4FF'), 0.35)
     : isTransparent
     ? new THREE.Color(brick.color).lerp(new THREE.Color('#F0EFE9'), adjacentLayer ? 0.65 : 0.5)
     : new THREE.Color(brick.color);
-  const bodyOpacity = diagnosticMuted ? 0.2 : adjacentLayer ? 0.08 : faded ? 0.55 : 1;
+  const bodyOpacity = ghost ? 0.38 : diagnosticMuted ? 0.2 : adjacentLayer ? 0.08 : faded ? 0.55 : 1;
 
   // No physical rotation when studWidth/studDepth are set — dimensions are already correct
   const useRotation = brick.studWidth == null;

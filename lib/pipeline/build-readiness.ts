@@ -15,13 +15,16 @@ export function buildReadinessStatus({
   floating,
   unsupported,
   weak,
+  criticalCantilever = 0,
 }: {
   totalBricks: number;
   floating: number;
   unsupported: number;
   weak: number;
+  criticalCantilever?: number;
 }): BuildReadinessStatus {
   if (floating > 0) return 'needs_repair';
+  if (criticalCantilever > 0) return 'needs_repair';
   if (unsupported === 0 && weak === 0) return 'ready';
   if (
     unsupported <= prototypeUnsupportedLimit(totalBricks) &&

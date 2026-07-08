@@ -290,8 +290,11 @@ function issueDescription(region: WeakRegionDiagnostic, support?: BrickSupportDi
 }
 
 function localRepairPriority(defectType: WeakRegionType): number {
+  if (defectType === 'detached_floating') return 6;
   if (defectType === 'floating') return 5;
+  if (defectType === 'critical_cantilever') return 5;
   if (defectType === 'unsupported') return 4;
+  if (defectType === 'attached_cantilever') return 3;
   if (defectType === 'weak_cantilever') return 3;
   if (defectType === 'articulation') return 2;
   return 1;
