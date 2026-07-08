@@ -146,7 +146,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairP
           onRemove={editor.removeReferenceImage}
         />
       )}
-      <div className="flex-1">
+      <div className="min-w-0 flex-1">
         <div className="h-[600px] relative bg-surface-viewer">
           <Canvas
             orthographic
@@ -272,7 +272,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairP
       </div>
       {!editor.editMode && (
         repairMode && repairPanel ? (
-          <aside className="w-full lg:w-[380px] shrink-0 flex flex-col">
+          <aside className="w-full lg:w-[520px] xl:w-[560px] shrink-0 min-w-0 flex flex-col">
             {repairPanel}
           </aside>
         ) : (
