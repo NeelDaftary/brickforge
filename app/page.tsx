@@ -90,7 +90,7 @@ export default function HomePage() {
         </div>
 
         <p className="text-base font-normal text-[#777777] text-center leading-relaxed">
-          Upload a mesh or image, inspect build health, and export an editable BrickForge build.
+          Convert meshes and images into editable LEGO-style builds, then check stability before printing or buying parts.
         </p>
 
         {!result ? (

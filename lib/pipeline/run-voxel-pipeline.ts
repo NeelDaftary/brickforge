@@ -303,6 +303,9 @@ export async function runVoxelPipeline(options: VoxelPipelineOptions): Promise<V
         warnings?: string[];
       }
       | undefined;
+    if (colorDiagnostics?.warnings?.length) {
+      warnings.push(...colorDiagnostics.warnings.map((warning) => `Color: ${warning}`));
+    }
 
     return {
       model,

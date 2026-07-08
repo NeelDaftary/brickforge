@@ -86,7 +86,7 @@ export function StartWorkspace({
                 Start From Mesh
               </h2>
               <p className="text-xs text-[#777777] mt-1">
-                .blend, .glb, .obj, .stl, or .ply
+                .blend, .glb, .obj, .stl, or .ply. Organic models may need a larger scale, thicker details, or repair.
               </p>
             </div>
             <span className="text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-pill px-3 py-1">
@@ -108,7 +108,7 @@ export function StartWorkspace({
                 Image Mosaic
               </h2>
               <p className="text-xs text-[#777777] mt-1">
-                JPG, PNG, or WebP
+                JPG, PNG, or WebP. Flat mosaics are the most predictable V1 output.
               </p>
             </div>
             <span className="text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-pill px-3 py-1">

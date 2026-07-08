@@ -108,6 +108,9 @@ export function ResultWorkspace({
           ? ` in ${(model.diagnostics.timingMs / 1000).toFixed(1)}s`
           : ''}
       </div>
+      <div className="w-full py-2.5 px-4 bg-[#F5F5F0] border border-[#E4E2DA] rounded-lg text-[12px] leading-snug text-[#666666] text-center">
+        Review build health, color, and fit before treating this as a final physical build. Organic models can still need manual support or a different scale.
+      </div>
       {visibleWarnings.map((warning, i) => (
         <div key={i} className="w-full py-2.5 px-4 bg-[#FFF8E1] border border-[#FFE082] rounded-lg text-sm text-[#CC8800]">
           {warning}

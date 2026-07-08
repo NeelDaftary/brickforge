@@ -3,6 +3,7 @@
 import { useState, useCallback } from 'react';
 import type { PipelineStage } from '@/lib/pipeline/types';
 import { MESH_UPLOAD_ACCEPT, isSupportedUploadExtension } from '@/lib/pipeline/mesh-formats';
+import { buildGuardrails, fileGuardrails, type UploadGuardrail } from '@/lib/pipeline/upload-guardrails';
 import { FileDropZone } from './shared/FileDropZone';
 
 interface MeshBounds {
@@ -37,6 +38,27 @@ const STUD_PRESETS = [
   { label: 'Medium', studs: 40, desc: '~40 studs wide' },
   { label: 'Large', studs: 64, desc: '~64 studs wide' },
 ];
+
+function GuardrailList({ items }: { items: UploadGuardrail[] }) {
+  if (items.length === 0) return null;
+
+  return (
+    <div className="grid gap-2">
+      {items.slice(0, 4).map((item, index) => (
+        <div
+          key={`${item.message}-${index}`}
+          className={`text-[11px] leading-snug rounded-md px-3 py-2 border ${
+            item.tone === 'warning'
+              ? 'bg-[#FFF8E1] border-[#FFE082] text-[#8A5A00]'
+              : 'bg-[#F5F5F0] border-[#E4E2DA] text-[#666666]'
+          }`}
+        >
+          {item.message}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshUploadProps) {
   const [file, setFile] = useState<File | null>(null);
@@ -166,6 +188,8 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
 
   const voxelSize = bounds ? computeVoxelSize(bounds.maxExtent, targetStuds) : null;
   const estimatedGrid = bounds ? Math.round(bounds.maxExtent / voxelSize!) : null;
+  const guardrails = file ? fileGuardrails(file.name, file.size) : [];
+  const measuredGuardrails = bounds && voxelSize ? buildGuardrails(bounds, voxelSize) : [];
 
   // File selected: show file info + controls
   return (
@@ -186,6 +210,8 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
           Remove
         </button>
       </div>
+
+      <GuardrailList items={guardrails} />
 
       {/* Object name input */}
       <div className="flex items-center gap-3">
@@ -261,6 +287,8 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
               <span>Mesh: {bounds.width.toFixed(2)} x {bounds.depth.toFixed(2)} x {bounds.height.toFixed(2)}</span>
             </div>
           </div>
+
+          <GuardrailList items={measuredGuardrails} />
 
           {/* Hollow toggle */}
           <label className="flex items-center gap-2 cursor-pointer">
