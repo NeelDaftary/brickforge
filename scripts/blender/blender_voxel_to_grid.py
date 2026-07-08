@@ -29,6 +29,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sys
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple
@@ -52,6 +53,43 @@ from color_quantization import (
 
 def lego_symbol_for_hex(hex_color: str) -> str:
     return LEGO_COLORS.get(hex_color, "G")
+
+
+def material_name_to_lego_hex(name: str) -> Optional[str]:
+    normalized = re.sub(r'(?<=[a-z])(?=[A-Z])', '_', name)
+    normalized = re.sub(r'[^a-zA-Z0-9]+', '_', normalized).lower()
+    normalized = f"_{normalized}_"
+    hints = [
+        (("bright_light_orange",), "#F7BA30"),
+        (("medium_blue", "light_blue"), "#1A85E0"),
+        (("dark_blue",), "#003987"),
+        (("dark_green",), "#007B28"),
+        (("light_green", "lime"), "#A6CA1E"),
+        (("dark_red",), "#A1223B"),
+        (("light_red",), "#DB0000"),
+        (("dark_yellow",), "#F7BA30"),
+        (("light_grey", "light_gray"), "#A0A5A9"),
+        (("dark_grey", "dark_gray"), "#5A5A5A"),
+        (("medium_nougat", "skin"), "#E3A05B"),
+        (("reddish_brown",), "#6C3A20"),
+        (("white",), "#FFFFFF"),
+        (("black",), "#101010"),
+        (("yellow",), "#FFD500"),
+        (("orange",), "#FF7E14"),
+        (("red",), "#DB0000"),
+        (("green",), "#2DBE2D"),
+        (("blue",), "#0059CF"),
+        (("purple",), "#8B1FA0"),
+        (("magenta",), "#B11585"),
+        (("pink",), "#FF5A7E"),
+        (("tan",), "#D9BB7A"),
+        (("brown",), "#6C3A20"),
+        (("grey", "gray"), "#A0A5A9"),
+    ]
+    for tokens, hex_color in hints:
+        if any(f"_{token}_" in normalized for token in tokens):
+            return hex_color
+    return None
 
 
 def detect_color_source(obj: bpy.types.Object) -> Tuple[str, float, List[str]]:
@@ -160,6 +198,7 @@ def _is_color_texture_candidate(node: bpy.types.Node) -> bool:
 def material_audit(mat: bpy.types.Material) -> Dict[str, Any]:
     texture_node = _base_color_texture_node(mat)
     flat_color = _flat_principled_color(mat)
+    name_hint = material_name_to_lego_hex(mat.name)
     images = []
     candidate_images = []
     node_types: Dict[str, int] = {}
@@ -191,6 +230,8 @@ def material_audit(mat: bpy.types.Material) -> Dict[str, Any]:
         "nodeTypes": node_types,
         "baseColorTexture": texture_node.image.name if texture_node and texture_node.image else None,
         "flatBaseColor": flat_color,
+        "materialNameColorHint": name_hint,
+        "materialNameColorSymbol": lego_symbol_for_hex(name_hint) if name_hint else None,
         "imageTextures": images,
         "baseColorCandidateTextures": sorted(set(candidate_images)),
         "unwiredBaseColorCandidates": sorted(set(unwired_candidates)),
@@ -264,6 +305,10 @@ def import_mesh_file(filepath: str) -> str:
 
     active = bpy.context.view_layer.objects.active
     obj = active if active and active.type == 'MESH' and active.data else mesh_objects[0]
+    bpy.ops.object.select_all(action='DESELECT')
+    obj.select_set(True)
+    bpy.context.view_layer.objects.active = obj
+    bpy.ops.object.transform_apply(location=False, rotation=True, scale=True)
     print(f"[LOG] Imported '{filepath}' as object '{obj.name}'")
     return obj.name
 
@@ -443,6 +488,9 @@ def sample_color_at_point(
     if principled:
         base_color_input = principled.inputs.get("Base Color")
         if base_color_input and not base_color_input.is_linked:
+            name_hint = material_name_to_lego_hex(mat.name)
+            if name_hint:
+                return name_hint
             rgba = base_color_input.default_value
             # Principled BSDF Base Color default_value is in linear space.
             return linear_rgb_to_nearest_lego_hex((rgba[0], rgba[1], rgba[2]))

@@ -86,6 +86,37 @@ Audit run: 2026-07-09, `--color-audit-samples 128`.
 | pikachu.blend | `pbr_texture` -> `pbr_texture` | 1.3289 | 0.0938 | Dominant yellow with secondary palette detail |
 | charmander2.blend | `flat_principled` -> `flat_principled` | 1.3805 | 0.0391 | Flat LEGO material slots produce expected orange/yellow palette |
 
+## Fresh External Asset Check
+
+Fresh CC0 GLBs from Poly Pizza / Quaternius were cached under
+`/tmp/brickforge-color-bench/fresh-assets` and run on 2026-07-09.
+
+Sources:
+
+- `Mushroom`: `https://poly.pizza/m/db1tjMhmiA`
+- `Star`: `https://poly.pizza/m/Tyau1aS2r0`
+- `Pipe`: `https://poly.pizza/m/CpCnSuo786`
+- `Yellow Box`: `https://poly.pizza/m/DDyKXPxxai`
+- `Hoodie Character`: `https://poly.pizza/m/gKLBoRsyKe`
+- `Worker`: `https://poly.pizza/m/Yg2bQZO6Hj`
+- `Astronaut`: `https://poly.pizza/m/3hC2i0CTuO`
+
+Findings after import transform normalization and flat-material name hints:
+
+| Asset | Expected coarse palette | Audit result | Voxel result at `0.05` |
+|---|---|---|---|
+| Mushroom | white/red | white 64.5%, red 35.5% | white 54.4%, red 45.6% |
+| Star | yellow | yellow 100.0% | yellow 100.0% |
+| Pipe | green | green 100.0% | green 100.0% |
+| Yellow Box | yellow/darker yellow | yellow 84.0%, bright light orange 16.0% | yellow 63.6%, bright light orange 36.4% |
+| Hoodie Character | skin/purple/brown/blue/white | plausible multi-color audit | voxelizer still collapses to one cube |
+| Worker | skin/brown/yellow/grey/black | plausible multi-color audit | voxelizer fails on evaluated mesh |
+| Astronaut | brown/grey/dark grey | plausible multi-color audit | voxelizer fails on evaluated mesh |
+
+The single-object external GLBs now provide useful end-to-end color checks.
+The multi-part character GLBs expose a separate import/voxelizer robustness issue,
+not a color-source detection failure.
+
 ## Open Work
 
 - Add a stronger visible-color oracle by baking material base color/diffuse color
