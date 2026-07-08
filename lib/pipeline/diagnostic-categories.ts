@@ -17,7 +17,6 @@ export const DIAGNOSTIC_CATEGORIES: readonly DiagnosticCategoryDefinition[] = [
   { key: 'unsupported', label: 'Unsupported', shortLabel: 'Unsupported', layoutKey: 'unsupportedBricks', severity: 'danger' },
   { key: 'criticalCantilever', label: 'Critical cantilevers', shortLabel: 'Critical', layoutKey: 'criticalCantileverRegions', severity: 'danger' },
   { key: 'weakCantilever', label: 'Weak cantilevers', shortLabel: 'Weak', layoutKey: 'weakCantilevers', severity: 'danger' },
-  { key: 'oracle', label: 'Oracle failures', shortLabel: 'Oracle', severity: 'danger' },
   { key: 'articulation', label: 'Articulations', shortLabel: 'Joint', layoutKey: 'articulationBricks', severity: 'warning' },
   { key: 'bridge', label: 'Bridge edges', shortLabel: 'Bridge', layoutKey: 'bridgeEdges', severity: 'warning' },
   { key: 'attachedCantilever', label: 'Attached cantilevers', shortLabel: 'Attached', layoutKey: 'attachedCantileverBricks', severity: 'info' },

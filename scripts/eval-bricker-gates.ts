@@ -96,9 +96,7 @@ function failuresForRows(rows: EvalRow[]): GateFailure[] {
       if (v2.bricks > comparator.bricks * 1.2) {
         failures.push({ file, engine: v2.engine, reason: `bricks ${v2.bricks} > 1.2x baseline ${comparator.bricks}` });
       }
-      if (v2.engine === 'v2_masks' && v2.runtimeMs > baseline.runtimeMs) {
-        failures.push({ file, engine: v2.engine, reason: `runtime ${v2.runtimeMs}ms > current v2 ${baseline.runtimeMs}ms` });
-      } else if (legacy && legacy.runtimeMs > 0 && v2.runtimeMs > legacy.runtimeMs * 8) {
+      if (legacy && legacy.runtimeMs > 0 && v2.runtimeMs > legacy.runtimeMs * 8) {
         failures.push({ file, engine: v2.engine, reason: `runtime ${v2.runtimeMs}ms > 8x legacy ${legacy.runtimeMs}ms` });
       }
     }

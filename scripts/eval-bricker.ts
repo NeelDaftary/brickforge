@@ -45,8 +45,6 @@ export interface EvalRow {
   candidateMaskMs: number;
   repairPatchType: string | null;
   repairAcceptedBy: string | null;
-  oracleCheckedRegions: number;
-  oracleFailures: number;
   readinessStatus: 'ready' | 'prototype' | 'needs_repair';
 }
 
@@ -234,8 +232,6 @@ function rowForModel(
     candidateMaskMs: stabilityV2?.candidateMaskMs ?? 0,
     repairPatchType: stabilityV2?.repair?.repairPatchType ?? null,
     repairAcceptedBy: stabilityV2?.repair?.repairAcceptedBy ?? null,
-    oracleCheckedRegions: stabilityV2?.oracleCheckedRegions ?? 0,
-    oracleFailures: stabilityV2?.oracleFailures ?? 0,
     readinessStatus: readinessStatus(layout, model.totalBricks),
   };
 }
@@ -319,7 +315,6 @@ export function printTable(rows: EvalRow[]): void {
     maxSeamRun: row.maxSeamRun,
     candidates: row.candidateCount,
     maskMs: row.candidateMaskMs,
-    oracleFailures: row.oracleFailures,
     readiness: row.readinessStatus,
     gate: row.gateStatus,
   })));

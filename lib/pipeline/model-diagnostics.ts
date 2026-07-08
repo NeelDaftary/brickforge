@@ -56,7 +56,6 @@ export interface ModelDiagnostics {
     articulation?: string[];
     bridge?: string[];
     internalSupport?: string[];
-    oracle?: string[];
   };
   stabilityV2?: {
     repair?: {

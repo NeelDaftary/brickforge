@@ -94,7 +94,6 @@ export interface GraphDiagnosticBrickIds {
   articulation: string[];
   bridge: string[];
   internalSupport: string[];
-  oracle: string[];
 }
 
 export interface AttachmentTree {
@@ -758,7 +757,6 @@ export function summarizeGraphDiagnostics(
 export function summarizeGraphDiagnosticBrickIds(
   diagnostics: GraphDiagnostics,
   graph?: BrickGraph,
-  oracleBrickIds: string[] = [],
 ): GraphDiagnosticBrickIds {
   const bridge = new Set<string>();
   for (const edge of diagnostics.bridgeEdges) {
@@ -779,6 +777,5 @@ export function summarizeGraphDiagnosticBrickIds(
     internalSupport: graph?.bricks
       .filter((brick) => brick.source.metadata?.internalSupport)
       .map((brick) => brick.id) ?? [],
-    oracle: oracleBrickIds,
   };
 }

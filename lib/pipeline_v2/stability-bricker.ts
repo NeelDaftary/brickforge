@@ -9,7 +9,6 @@ import { refineStability, type RefinementStats } from '@/lib/pipeline/stability-
 import { buildLayerOwners, solveLayer, type SolvedBrick } from './layer-solver';
 import { repairStabilityV2, type InternalSupportStats, type RepairStats } from './repair';
 import { analyzeBrickGraph, summarizeGraphDiagnostics, type GraphDiagnosticsSummary } from './brick-graph';
-import { runPhysicsOracle, type PhysicsOracleResult } from './physics-oracle';
 import type { StabilityV2Variant } from './variants';
 
 export interface StabilityV2Options {
@@ -20,9 +19,6 @@ export interface StabilityV2Options {
   deepRepair?: boolean;
   variant?: StabilityV2Variant;
   useCandidateMasks?: boolean;
-  repairMode?: 'local' | 'tree';
-  scoreMode?: 'weighted' | 'lexicographic';
-  oracle?: boolean;
 }
 
 interface Dims {
@@ -53,11 +49,6 @@ export interface StabilityV2Stats {
   finalLayout?: GraphDiagnosticsSummary;
   repair?: RepairStats;
   internalSupport?: InternalSupportStats;
-  oracleInitial?: PhysicsOracleResult;
-  oracleFinal?: PhysicsOracleResult;
-  oracleCheckedRegions?: number;
-  oracleFailures?: number;
-  oracleFailureBrickIds?: string[];
   refinement?: RefinementStats;
 }
 
@@ -67,28 +58,13 @@ const DY = [0, 0, 1, -1, 0, 0];
 const DZ = [0, 0, 0, 0, 1, -1];
 
 function optionsForVariant(options: StabilityV2Options): Required<Pick<StabilityV2Options,
-  'variant' | 'useCandidateMasks' | 'repairMode' | 'scoreMode' | 'oracle'
+  'variant' | 'useCandidateMasks'
 >> {
   const variant = options.variant ?? 'stability_v2';
-  const defaults = {
-    stability_v2: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'weighted', oracle: false },
-    v2_masks: { useCandidateMasks: true, repairMode: 'local', scoreMode: 'weighted', oracle: false },
-    v2_tree_repair: { useCandidateMasks: false, repairMode: 'tree', scoreMode: 'weighted', oracle: false },
-    v2_lexicographic: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'lexicographic', oracle: false },
-    v2_oracle: { useCandidateMasks: false, repairMode: 'local', scoreMode: 'weighted', oracle: true },
-  } satisfies Record<StabilityV2Variant, {
-    useCandidateMasks: boolean;
-    repairMode: 'local' | 'tree';
-    scoreMode: 'weighted' | 'lexicographic';
-    oracle: boolean;
-  }>;
 
   return {
     variant,
-    useCandidateMasks: options.useCandidateMasks ?? defaults[variant].useCandidateMasks,
-    repairMode: options.repairMode ?? defaults[variant].repairMode,
-    scoreMode: options.scoreMode ?? defaults[variant].scoreMode,
-    oracle: options.oracle ?? defaults[variant].oracle,
+    useCandidateMasks: options.useCandidateMasks ?? false,
   };
 }
 
@@ -354,7 +330,6 @@ export function voxelGridToBrickModelV2(
   let layers = initialLayers;
   const initialBricks = toBrickInstances(layers.flat(), prepared.dims);
   stats.initialLayout = summarizeGraphDiagnostics(analyzeBrickGraph(initialBricks));
-  if (variantOptions.oracle) stats.oracleInitial = runPhysicsOracle(initialBricks);
 
   let refinementStats: RefinementStats | undefined;
   if (refineEnabled) {
@@ -373,8 +348,6 @@ export function voxelGridToBrickModelV2(
       supportOptionalCells: prepared.supportOptionalCells,
     }, {
       deep: options.deepRepair,
-      repairMode: variantOptions.repairMode,
-      scoreMode: variantOptions.scoreMode,
     });
     layers = repaired.layers;
     stats.repair = repaired.repair;
@@ -390,13 +363,6 @@ export function voxelGridToBrickModelV2(
       internalSupportVoxels: stats.internalSupport?.internalSupportVoxels ?? 0,
     },
   );
-  if (variantOptions.oracle) {
-    stats.oracleFinal = runPhysicsOracle(bricks);
-    stats.oracleCheckedRegions = (stats.oracleInitial?.checkedRegions ?? 0) + stats.oracleFinal.checkedRegions;
-    stats.oracleFailures = stats.oracleFinal.failures.length;
-    stats.oracleFailureBrickIds = stats.oracleFinal.failureBrickIds;
-  }
-
   console.log(`[pipeline:v2:${stats.variant}] ${allBricks.length} bricks, ${stats.candidateBranches} candidates explored`);
 
   return {

@@ -216,7 +216,7 @@ describe('POST /api/upload', () => {
     expect(runVoxelPipelineMock).not.toHaveBeenCalled();
   });
 
-  it('forwards experimental bricker engine options to the pipeline', async () => {
+  it('falls back to legacy for removed experimental bricker engine options', async () => {
     const form = new FormData();
     form.append('mesh', blendFile('BLENDER-v30'));
     form.append('brickerEngine', 'v2_tree_repair');
@@ -227,7 +227,7 @@ describe('POST /api/upload', () => {
     expect(res.status).toBe(200);
     expect(runVoxelPipelineMock).toHaveBeenCalledWith(
       expect.objectContaining({
-        brickerEngine: 'v2_tree_repair',
+        brickerEngine: 'legacy',
         shadowCompare: true,
       }),
     );

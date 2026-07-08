@@ -28,7 +28,7 @@ export function buildLayoutDiagnostics(
     internalSupportBricks: stabilityV2?.internalSupport?.internalSupportBricks ?? 0,
     internalSupportVoxels: stabilityV2?.internalSupport?.internalSupportVoxels ?? 0,
   });
-  const layoutIds = summarizeGraphDiagnosticBrickIds(graphDiagnostics, graph, stabilityV2?.oracleFailureBrickIds ?? []);
+  const layoutIds = summarizeGraphDiagnosticBrickIds(graphDiagnostics, graph);
   const unsupportedBricks = [...stability.brickSupport.values()]
     .filter((info) => info.supportRatio === 0 && info.tier !== 'stable')
     .length;

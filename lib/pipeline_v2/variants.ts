@@ -1,10 +1,4 @@
-export const STABILITY_V2_VARIANTS = [
-  'stability_v2',
-  'v2_masks',
-  'v2_tree_repair',
-  'v2_lexicographic',
-  'v2_oracle',
-] as const;
+export const STABILITY_V2_VARIANTS = ['stability_v2'] as const;
 
 export type StabilityV2Variant = typeof STABILITY_V2_VARIANTS[number];
 

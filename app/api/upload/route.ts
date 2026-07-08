@@ -20,7 +20,7 @@ const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
  * - objectName (optional): Blender object name
  * - name (optional): build name
  * - shell (optional): boolean, default true
- * - brickerEngine (optional): legacy | stability_v2 | v2_masks | v2_tree_repair | v2_lexicographic | v2_oracle
+ * - brickerEngine (optional): legacy | stability_v2
  * - shadowCompare (optional): boolean, default false
  */
 export async function POST(req: NextRequest) {
