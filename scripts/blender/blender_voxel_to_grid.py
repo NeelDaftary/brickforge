@@ -99,13 +99,14 @@ def detect_color_source(obj: bpy.types.Object) -> Tuple[str, float, List[str]]:
         if unresolved > 0:
             warnings.append("Some materials could not be traced to base-color textures.")
         return ("pbr_texture", 0.9 if unresolved == 0 else 0.75, warnings)
+    if len(mesh.color_attributes) > 0:
+        if flat > 0:
+            warnings.append("Using mesh color attributes instead of flat material colors.")
+        return ("vertex_color", 0.75 if unresolved == 0 else 0.6, warnings)
     if flat > 0 and textured == 0:
         if unresolved > 0:
             warnings.append("Mixed material graph quality; using flat Principled base colors where available.")
         return ("flat_principled", 0.8 if unresolved == 0 else 0.65, warnings)
-    if len(mesh.color_attributes) > 0:
-        warnings.append("Material graph unresolved; relying on vertex color attributes.")
-        return ("vertex_color", 0.6, warnings)
     warnings.append("Could not infer a reliable color source; fallback mapping may be inaccurate.")
     return ("fallback", 0.2, warnings)
 
@@ -144,7 +145,8 @@ def import_mesh_file(filepath: str) -> str:
         bpy.context.view_layer.objects.active = mesh_objects[0]
         bpy.ops.object.join()
 
-    obj = bpy.context.view_layer.objects.active or mesh_objects[0]
+    active = bpy.context.view_layer.objects.active
+    obj = active if active and active.type == 'MESH' and active.data else mesh_objects[0]
     print(f"[LOG] Imported '{filepath}' as object '{obj.name}'")
     return obj.name
 
@@ -281,15 +283,15 @@ def sample_color_at_point(
                             img_tex = upstream
                             break
 
+    loop_indices = face.loop_indices
+    verts = [mesh.vertices[mesh.loops[li].vertex_index].co for li in loop_indices]
+    bary = _barycentric_coords(location, verts)
+
     # Path 1: Texture sampling via barycentric UV interpolation
     if img_tex and img_tex.image and mesh.uv_layers.active:
         uv_layer = mesh.uv_layers.active.data
-        loop_indices = face.loop_indices
-        verts = [mesh.vertices[mesh.loops[li].vertex_index].co for li in loop_indices]
         uvs = [uv_layer[li].uv for li in loop_indices]
 
-        # Compute barycentric coordinates of the hit point
-        bary = _barycentric_coords(location, verts)
         if bary is not None:
             # Interpolate UV
             u = sum(b * uv.x for b, uv in zip(bary, uvs))
@@ -315,7 +317,12 @@ def sample_color_at_point(
                 # sRGB / Filmic / other managed spaces — Blender already linearized
                 return linear_rgb_to_nearest_lego_hex((r, g, b))
 
-    # Path 2: Flat Base Color from Principled BSDF
+    # Path 2: Vertex/color-attribute sampling. GLB COLOR_0 imports land here.
+    attr_color = sample_color_attribute(mesh, face, loop_indices, bary)
+    if attr_color is not None:
+        return attr_color
+
+    # Path 3: Flat Base Color from Principled BSDF
     if principled:
         base_color_input = principled.inputs.get("Base Color")
         if base_color_input and not base_color_input.is_linked:
@@ -324,6 +331,40 @@ def sample_color_at_point(
             return linear_rgb_to_nearest_lego_hex((rgba[0], rgba[1], rgba[2]))
 
     return "G"
+
+
+def sample_color_attribute(
+    mesh: bpy.types.Mesh,
+    face: bpy.types.MeshPolygon,
+    loop_indices: List[int],
+    bary: Optional[List[float]],
+) -> Optional[str]:
+    """Interpolate the active color attribute for vertex-color GLB/Blender files."""
+    if bary is None or len(mesh.color_attributes) == 0:
+        return None
+
+    attr = mesh.color_attributes.active_color or mesh.color_attributes.active
+    if attr is None:
+        return None
+
+    samples = []
+    if attr.domain == 'CORNER':
+        for li in loop_indices:
+            samples.append(attr.data[li].color)
+    elif attr.domain == 'POINT':
+        for li in loop_indices:
+            vi = mesh.loops[li].vertex_index
+            samples.append(attr.data[vi].color)
+    else:
+        return None
+
+    if len(samples) != len(bary):
+        return None
+
+    r = sum(weight * color[0] for weight, color in zip(bary, samples))
+    g = sum(weight * color[1] for weight, color in zip(bary, samples))
+    b = sum(weight * color[2] for weight, color in zip(bary, samples))
+    return linear_rgb_to_nearest_lego_hex((r, g, b))
 
 
 def _barycentric_coords(
