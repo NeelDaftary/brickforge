@@ -157,11 +157,11 @@ export function StartWorkspace({
                 Start From Mesh
               </h2>
               <p className="text-xs text-[#777777] mt-1">
-                .blend, .glb, .obj, .stl, or .ply. Organic models may need a larger scale, thicker details, or repair.
+                Upload a 3D model and convert it into an editable brick build. Use .blend for the best color capture.
               </p>
             </div>
-            <span className="text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-pill px-3 py-1">
-              3D build
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-full px-3 py-1">
+              3D model
             </span>
           </div>
           <MeshUpload
@@ -179,11 +179,11 @@ export function StartWorkspace({
                 Image Mosaic
               </h2>
               <p className="text-xs text-[#777777] mt-1">
-                JPG, PNG, or WebP. Flat mosaics are the most predictable V1 output.
+                Turn a flat image into a plate mosaic. Best for logos, pixel art, and simple color studies.
               </p>
             </div>
-            <span className="text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-pill px-3 py-1">
-              Flat build
+            <span className="shrink-0 whitespace-nowrap text-[11px] font-semibold text-[#777777] bg-surface border border-border rounded-full px-3 py-1">
+              Mosaic
             </span>
           </div>
           <ImageMosaic
@@ -197,10 +197,10 @@ export function StartWorkspace({
         <section className="w-full flex flex-col gap-3 border-t border-[#E0DFD9] pt-6">
           <div>
             <h2 className="text-sm font-extrabold uppercase tracking-[1.5px] text-[#1A1A1A]">
-              Open Build Data
+              Import Past Builds
             </h2>
             <p className="text-xs text-[#777777] mt-1">
-              Load a local BrickForge JSON export.
+              Load a local BrickForge JSON.
             </p>
           </div>
 
