@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useRef } from 'react';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { ImageMosaic } from '@/components/ImageMosaic';
@@ -10,19 +11,24 @@ import type { PipelineStage } from '@/lib/pipeline/types';
 
 const DEMO_BUILDS = [
   {
-    title: 'Starter Block',
-    description: 'Clean export path',
-    href: '/demos/starter-block.brickforge.json',
+    title: 'Squirtle',
+    href: '/demos/squirtle-repaint.brickforge.json',
+    icon: '/demos/icons/squirtle.svg',
   },
   {
-    title: 'Little Creature',
-    description: 'Try repair + retile',
-    href: '/demos/repair-creature.brickforge.json',
+    title: 'Charmander',
+    href: '/demos/charmander2.brickforge.json',
+    icon: '/demos/icons/charmander.svg',
   },
   {
-    title: 'Color Mosaic',
-    description: 'Paint and save',
-    href: '/demos/color-mosaic.brickforge.json',
+    title: 'Cat',
+    href: '/demos/cat.brickforge.json',
+    icon: '/demos/icons/cat.svg',
+  },
+  {
+    title: 'Shiba',
+    href: '/demos/shiba.brickforge.json',
+    icon: '/demos/icons/shiba.svg',
   },
 ];
 
@@ -116,23 +122,29 @@ export function StartWorkspace({
           <div className="flex items-end justify-between gap-4">
             <div>
               <h2 className="text-sm font-extrabold uppercase tracking-[1.5px] text-[#1A1A1A]">
-                Try A Demo
+                Samples
               </h2>
-              <p className="text-xs text-[#777777] mt-1">
-                Open a polished BrickForge build and test the improvement loop.
-              </p>
             </div>
           </div>
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid grid-cols-4 gap-2">
             {DEMO_BUILDS.map((demo) => (
               <button
                 key={demo.href}
                 onClick={() => { void handleLoadDemo(demo.href); }}
                 disabled={isWorking}
-                className="min-h-[78px] rounded-card border-2 border-border bg-surface px-4 py-3 text-left transition-all hover:border-brick-red disabled:opacity-50 disabled:cursor-not-allowed"
+                title={demo.title}
+                aria-label={`Open ${demo.title} sample`}
+                className="aspect-square rounded-card border-2 border-border bg-surface p-2 transition-all hover:border-brick-red hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:translate-y-0"
               >
-                <div className="text-sm font-extrabold text-[#1A1A1A]">{demo.title}</div>
-                <div className="mt-1 text-xs text-[#777777]">{demo.description}</div>
+                <Image
+                  src={demo.icon}
+                  alt=""
+                  width={112}
+                  height={112}
+                  className="h-full w-full object-contain"
+                  draggable={false}
+                />
+                <span className="sr-only">{demo.title}</span>
               </button>
             ))}
           </div>

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 112 112" role="img" aria-label="Cat sample">
+  <rect width="112" height="112" rx="20" fill="#F5F5F0"/>
+  <path d="M30 47 24 28l18 11c4-2 9-3 14-3s10 1 14 3l18-11-6 19c4 5 6 11 6 18 0 21-14 35-32 35S24 86 24 65c0-7 2-13 6-18Z" fill="#D9BB7A" stroke="#6C3A20" stroke-width="4" stroke-linejoin="round"/>
+  <path d="M39 64c0-4 3-7 7-7s7 3 7 7M59 64c0-4 3-7 7-7s7 3 7 7" fill="none" stroke="#101010" stroke-width="4" stroke-linecap="round"/>
+  <path d="M51 73h10l-5 5-5-5Z" fill="#A1223B"/>
+  <path d="M56 78v6M48 84c3 3 6 4 8 0 2 4 5 3 8 0" fill="none" stroke="#6C3A20" stroke-width="3" stroke-linecap="round"/>
+  <path d="M18 67h24M16 77h26M70 67h24M70 77h26" stroke="#6C3A20" stroke-width="3" stroke-linecap="round"/>
+</svg>

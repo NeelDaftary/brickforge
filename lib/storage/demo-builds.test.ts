@@ -4,9 +4,10 @@ import { describe, expect, it } from 'vitest';
 import type { GeneratedModel } from '@/lib/pipeline/model-diagnostics';
 
 const DEMOS = [
-  'starter-block.brickforge.json',
-  'repair-creature.brickforge.json',
-  'color-mosaic.brickforge.json',
+  'squirtle-repaint.brickforge.json',
+  'charmander2.brickforge.json',
+  'cat.brickforge.json',
+  'shiba.brickforge.json',
 ];
 
 function isGeneratedModel(value: unknown): value is GeneratedModel {
@@ -27,6 +28,7 @@ describe('demo builds', () => {
       expect(parsed.bricks).toHaveLength(parsed.totalBricks);
       expect(parsed.voxelData?.grid).toBeTruthy();
       expect(parsed.diagnostics?.layout).toBeTruthy();
+      expect(parsed.diagnostics?.color).toBeTruthy();
     }
   });
 });
