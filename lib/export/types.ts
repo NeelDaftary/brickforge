@@ -13,6 +13,7 @@ export interface BedBrick {
   brickId: string;
   bedPosition: [number, number]; // x, z offset on bed (mm)
   mesh: IndexedMesh;
+  rotated?: boolean; // true when packed footprint is rotated 90 degrees on the bed
 }
 
 export interface PrintPlate {

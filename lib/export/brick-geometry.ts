@@ -10,6 +10,8 @@ const STUD_DIAMETER = 4.8;
 const STUD_HEIGHT = 1.8;      // Protrusion above body
 const TUBE_OUTER_D = 6.51;    // Anti-stud tube outer diameter
 const TUBE_INNER_D = 4.8;     // Anti-stud tube inner diameter (= stud dia)
+const NARROW_TUBE_OUTER_D = 4.8; // 1-wide parts use smaller center tubes/posts
+const NARROW_TUBE_INNER_D = 2.6;
 const WALL_THICKNESS = 1.2;   // Outer wall thickness
 const FLOOR_THICKNESS = 1.0;  // Top/bottom slab thickness
 
@@ -249,21 +251,23 @@ function buildStandardBrick(studW: number, studD: number, bodyHeight: number, co
       }
     }
   } else if (studW === 1 && studD > 1) {
-    // 1xN: single ridge bar along the interior bottom
-    const ridgeW = STUD_DIAMETER; // ridge width matches stud diameter
-    const ridgeH = bodyH - FLOOR_THICKNESS;
-    const ridgeD = (studD - 1) * STUD_PITCH;
-    const ridgeX = (bodyW - ridgeW) / 2;
-    const ridgeZ = (bodyD - ridgeD) / 2;
-    parts.push(makeBox(ridgeX, 0, ridgeZ, ridgeW, ridgeH, ridgeD));
+    // 1xN: discrete center tubes/posts between studs, not a full-length rectangular rail.
+    const tubeOuterR = Math.min(NARROW_TUBE_OUTER_D / 2, (bodyW - 2 * WALL_THICKNESS) / 2);
+    const tubeInnerR = Math.min(NARROW_TUBE_INNER_D / 2, tubeOuterR * 0.55);
+    const tubeH = bodyH - FLOOR_THICKNESS;
+    for (let tz = 0; tz < studD - 1; tz++) {
+      const cz = bodyD / 2 + (tz - (studD - 2) / 2) * STUD_PITCH;
+      parts.push(makeTube(bodyW / 2, 0, cz, tubeOuterR, tubeInnerR, tubeH, segs));
+    }
   } else if (studD === 1 && studW > 1) {
-    // Nx1 (rotated 1xN): single ridge bar along the other axis
-    const ridgeD = STUD_DIAMETER;
-    const ridgeH = bodyH - FLOOR_THICKNESS;
-    const ridgeW = (studW - 1) * STUD_PITCH;
-    const ridgeX = (bodyW - ridgeW) / 2;
-    const ridgeZ = (bodyD - ridgeD) / 2;
-    parts.push(makeBox(ridgeX, 0, ridgeZ, ridgeW, ridgeH, ridgeD));
+    // Nx1: same narrow tube pattern, rotated onto the other axis.
+    const tubeOuterR = Math.min(NARROW_TUBE_OUTER_D / 2, (bodyD - 2 * WALL_THICKNESS) / 2);
+    const tubeInnerR = Math.min(NARROW_TUBE_INNER_D / 2, tubeOuterR * 0.55);
+    const tubeH = bodyH - FLOOR_THICKNESS;
+    for (let tx = 0; tx < studW - 1; tx++) {
+      const cx = bodyW / 2 + (tx - (studW - 2) / 2) * STUD_PITCH;
+      parts.push(makeTube(cx, 0, bodyD / 2, tubeOuterR, tubeInnerR, tubeH, segs));
+    }
   }
   // 1x1: no interior features (walls provide interference fit)
 

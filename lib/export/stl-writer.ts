@@ -79,6 +79,46 @@ export function meshToSTL(mesh: IndexedMesh, header?: string): ArrayBuffer {
   return buffer;
 }
 
+function meshFootprint(mesh: IndexedMesh): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  for (let i = 0; i < mesh.vertices.length; i += 3) {
+    const x = mesh.vertices[i];
+    const z = mesh.vertices[i + 2];
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
+  }
+
+  if (!Number.isFinite(minX)) return { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
+  return { minX, maxX, minZ, maxZ };
+}
+
+function transformBedVertex(
+  verts: Float32Array,
+  vertexIndex: number,
+  bedX: number,
+  bedZ: number,
+  rotated: boolean,
+  footprint: { minX: number; maxX: number; minZ: number; maxZ: number },
+): [number, number, number] {
+  const x = verts[vertexIndex * 3];
+  const y = verts[vertexIndex * 3 + 1];
+  const z = verts[vertexIndex * 3 + 2];
+  if (!rotated) return [x + bedX, y, z + bedZ];
+
+  // Rotate 90 degrees on the bed while keeping the rotated footprint positive.
+  return [
+    (z - footprint.minZ) + bedX,
+    y,
+    (footprint.maxX - x) + bedZ,
+  ];
+}
+
 /**
  * Convert all bricks on a PrintPlate to a single binary STL.
  * Each brick's vertices are translated by its bedPosition (x, z offsets).
@@ -102,14 +142,18 @@ export function plateToSTL(plate: PrintPlate): ArrayBuffer {
     const verts = brick.mesh.vertices;
     const idx = brick.mesh.indices;
     const triCount = idx.length / 3;
+    const footprint = brick.rotated ? meshFootprint(brick.mesh) : { minX: 0, maxX: 0, minZ: 0, maxZ: 0 };
 
     for (let t = 0; t < triCount; t++) {
       const i0 = idx[t * 3], i1 = idx[t * 3 + 1], i2 = idx[t * 3 + 2];
+      const a = transformBedVertex(verts, i0, bedX, bedZ, Boolean(brick.rotated), footprint);
+      const b = transformBedVertex(verts, i1, bedX, bedZ, Boolean(brick.rotated), footprint);
+      const c = transformBedVertex(verts, i2, bedX, bedZ, Boolean(brick.rotated), footprint);
       offset = writeTriangle(
         view, offset,
-        verts[i0 * 3] + bedX, verts[i0 * 3 + 1], verts[i0 * 3 + 2] + bedZ,
-        verts[i1 * 3] + bedX, verts[i1 * 3 + 1], verts[i1 * 3 + 2] + bedZ,
-        verts[i2 * 3] + bedX, verts[i2 * 3 + 1], verts[i2 * 3 + 2] + bedZ,
+        a[0], a[1], a[2],
+        b[0], b[1], b[2],
+        c[0], c[1], c[2],
       );
     }
   }

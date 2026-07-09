@@ -28,6 +28,7 @@ export interface PlannedBrick {
   widthMm: number;
   depthMm: number;
   heightMm: number;
+  rotated: boolean;
 }
 
 export interface PrintBed {
@@ -121,7 +122,10 @@ export function planPrintBeds(bom: BOMItem[], config?: PrintBedConfig): PrintPla
           brickId: entry.brickId,
           displayName: entry.displayName,
           x: p.x, z: p.y,
-          widthMm: entry.w, depthMm: entry.d, heightMm: entry.h,
+          widthMm: p.rotated ? entry.d : entry.w,
+          depthMm: p.rotated ? entry.w : entry.d,
+          heightMm: entry.h,
+          rotated: p.rotated,
         });
         usedArea += entry.w * entry.d;
       }

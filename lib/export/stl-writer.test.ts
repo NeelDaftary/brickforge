@@ -23,8 +23,33 @@ function expectedSize(n: number): number {
   return 80 + 4 + n * 50;
 }
 
+function stlBounds(buf: ArrayBuffer): { minX: number; maxX: number; minZ: number; maxZ: number } {
+  const view = new DataView(buf);
+  const triCount = readTriCount(buf);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+
+  for (let tri = 0; tri < triCount; tri++) {
+    const triStart = 84 + tri * 50 + 12;
+    for (let vertex = 0; vertex < 3; vertex++) {
+      const offset = triStart + vertex * 12;
+      const x = view.getFloat32(offset, true);
+      const z = view.getFloat32(offset + 8, true);
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z);
+    }
+  }
+
+  return { minX, maxX, minZ, maxZ };
+}
+
 const SINGLE_TRI = makeMesh([0, 0, 0, 1, 0, 0, 0, 1, 0], [0, 1, 2]);
 const TWO_TRI = makeMesh([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0], [0, 1, 2, 0, 2, 3]);
+const RECT_2X1 = makeMesh([0, 0, 0, 2, 0, 0, 2, 0, 1, 0, 0, 1], [0, 1, 2, 0, 2, 3]);
 
 // ─── meshToSTL ────────────────────────────────────────────────────────────────
 
@@ -126,6 +151,21 @@ describe('plateToSTL', () => {
     const yView = new DataView(yBuf);
     const yV = 84 + 12;
     expect(yView.getFloat32(yV + 4, true)).toBeCloseTo(5);
+  });
+
+  it('rotates packed brick meshes into their reserved bed footprint', () => {
+    const plate: PrintPlate = {
+      color: '#ff0000',
+      colorName: 'Red',
+      bricks: [{ brickId: 'b1', bedPosition: [10, 20], mesh: RECT_2X1, rotated: true }],
+      bounds: [11, 1, 22],
+    };
+
+    const bounds = stlBounds(plateToSTL(plate));
+    expect(bounds.minX).toBeCloseTo(10);
+    expect(bounds.maxX).toBeCloseTo(11);
+    expect(bounds.minZ).toBeCloseTo(20);
+    expect(bounds.maxZ).toBeCloseTo(22);
   });
 
   it('handles empty plate', () => {

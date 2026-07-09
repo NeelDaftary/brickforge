@@ -27,6 +27,7 @@ export interface PackedPlacement {
   x: number;
   y: number;
   index: number;
+  rotated: boolean;
 }
 
 export type Heuristic = 'bssf' | 'baf';
@@ -78,6 +79,9 @@ export function packMaxRects(
     let bestScore2 = Infinity;
     let bestX = 0;
     let bestY = 0;
+    let bestW = 0;
+    let bestH = 0;
+    let bestRotated = false;
     let found = false;
 
     for (const fr of freeRects) {
@@ -87,6 +91,8 @@ export function packMaxRects(
         if (s1 < bestScore1 || (s1 === bestScore1 && s2 < bestScore2)) {
           bestScore1 = s1; bestScore2 = s2;
           bestX = fr.x; bestY = fr.y;
+          bestW = bw; bestH = bh;
+          bestRotated = false;
           found = true;
         }
       }
@@ -96,6 +102,8 @@ export function packMaxRects(
         if (s1 < bestScore1 || (s1 === bestScore1 && s2 < bestScore2)) {
           bestScore1 = s1; bestScore2 = s2;
           bestX = fr.x; bestY = fr.y;
+          bestW = bh; bestH = bw;
+          bestRotated = true;
           found = true;
         }
       }
@@ -106,10 +114,10 @@ export function packMaxRects(
       continue;
     }
 
-    placed.push({ x: bestX, y: bestY, index: item.index });
+    placed.push({ x: bestX, y: bestY, index: item.index, rotated: bestRotated });
 
     // Split free rects overlapping the placed rect
-    const placedRect: Rect = { x: bestX, y: bestY, w: bw, h: bh };
+    const placedRect: Rect = { x: bestX, y: bestY, w: bestW, h: bestH };
     const newFreeRects: Rect[] = [];
 
     for (const fr of freeRects) {

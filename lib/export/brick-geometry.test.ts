@@ -53,6 +53,30 @@ function bottomInteriorSheetTriangles(mesh: IndexedMesh, studW: number, studD: n
   return count;
 }
 
+function largestInteriorBottomTriangleSpan(mesh: IndexedMesh, studW: number, studD: number): number {
+  const bodyW = studW * STUD_PITCH - 2 * TOLERANCE;
+  const bodyD = studD * STUD_PITCH - 2 * TOLERANCE;
+  let largest = 0;
+
+  for (let tri = 0; tri < mesh.indices.length / 3; tri++) {
+    const verts = verticesForTriangle(mesh, tri);
+    if (!verts.every(([, y]) => Math.abs(y) < 1e-5)) continue;
+
+    const cx = verts.reduce((sum, [x]) => sum + x, 0) / 3;
+    const cz = verts.reduce((sum, [, , z]) => sum + z, 0) / 3;
+    const insideRim = cx > WALL_THICKNESS && cx < bodyW - WALL_THICKNESS &&
+      cz > WALL_THICKNESS && cz < bodyD - WALL_THICKNESS;
+    if (!insideRim) continue;
+
+    const xs = verts.map(([x]) => x);
+    const zs = verts.map(([, , z]) => z);
+    const span = Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...zs) - Math.min(...zs));
+    largest = Math.max(largest, span);
+  }
+
+  return largest;
+}
+
 describe('generateBrickMesh', () => {
   it('leaves standard brick undersides open instead of adding a flat bottom sheet', () => {
     const mesh = generateBrickMesh('b_2x4', { tolerance: TOLERANCE, cylinderSegments: 16 });
@@ -75,6 +99,16 @@ describe('generateBrickMesh', () => {
       });
 
     expect(bottomInteriorTriangles.length).toBeGreaterThan(0);
+  });
+
+  it('uses discrete narrow tubes on 1-wide bricks instead of a long rectangular underside rail', () => {
+    const mesh = generateBrickMesh('b_1x4', { tolerance: TOLERANCE, cylinderSegments: 16 });
+    expect(largestInteriorBottomTriangleSpan(mesh, 1, 4)).toBeLessThan(5);
+  });
+
+  it('uses discrete narrow tubes on 1-wide plates as well', () => {
+    const mesh = generateBrickMesh('p_1x4', { tolerance: TOLERANCE, cylinderSegments: 16 });
+    expect(largestInteriorBottomTriangleSpan(mesh, 1, 4)).toBeLessThan(5);
   });
 
   it('leaves the 2x2 slope underside open', () => {

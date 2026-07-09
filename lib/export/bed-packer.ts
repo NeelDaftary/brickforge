@@ -96,10 +96,11 @@ export function packBed(model: BrickModelData, options?: BedPackerOptions): BedP
           brickId: entry.brickId,
           bedPosition: [p.x, p.y],
           mesh: getCachedMesh(entry.brickId),
+          rotated: p.rotated,
         });
-        maxX = Math.max(maxX, p.x + entry.w);
+        maxX = Math.max(maxX, p.x + (p.rotated ? entry.d : entry.w));
         maxY = Math.max(maxY, entry.h);
-        maxZ = Math.max(maxZ, p.y + entry.d);
+        maxZ = Math.max(maxZ, p.y + (p.rotated ? entry.w : entry.d));
       }
 
       const colorHex = color.startsWith('#') ? color : `#${color}`;
