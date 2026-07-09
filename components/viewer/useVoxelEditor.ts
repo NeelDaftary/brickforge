@@ -7,7 +7,9 @@ import { COLOR_PALETTE } from '@/lib/engine/color-palette';
 import { floodFill } from '@/lib/engine/flood-fill';
 import { expandGridIfNeeded, normalizeGridZ } from '@/lib/engine/grid-utils';
 import { checkGridStability } from '@/lib/pipeline/brick-stability';
+import { userFacingErrorMessage } from '@/lib/pipeline/user-facing-messages';
 import type { BrickerVariant } from '@/lib/pipeline_v2/variants';
+import type { RetileCandidate, RetileStyle } from '@/lib/pipeline_v2/retile-selection';
 import type { EditTool } from './EditToolbar';
 
 type ModelDiagnostics = {
@@ -78,10 +80,18 @@ export function useVoxelEditor({
   const [editedGrid, setEditedGrid] = useState<string[][][] | null>(null);
   const [changeCount, setChangeCount] = useState(0);
   const [applying, setApplying] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
   const [voxelModel, setVoxelModel] = useState<BrickModelData | null>(null);
   const [refImages, setRefImages] = useState<string[]>([]);
   const [unstableCells, setUnstableCells] = useState<Set<string>>(new Set());
   const [marginalCells, setMarginalCells] = useState<Set<string>>(new Set());
+  const [undoStack, setUndoStack] = useState<string[][][][]>([]);
+  const [redoStack, setRedoStack] = useState<string[][][][]>([]);
+  const [selectedCells, setSelectedCells] = useState<Set<string>>(new Set());
+  const [retileStyle, setRetileStyle] = useState<RetileStyle>('balanced');
+  const [retileCandidates, setRetileCandidates] = useState<RetileCandidate[]>([]);
+  const [retileLoading, setRetileLoading] = useState(false);
+  const [retileError, setRetileError] = useState<string | null>(null);
   const stabilityTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const voxelData = model.voxelData;
@@ -112,6 +122,12 @@ export function useVoxelEditor({
     setVoxelModel(null);
     setUnstableCells(new Set());
     setMarginalCells(new Set());
+    setUndoStack([]);
+    setRedoStack([]);
+    setSelectedCells(new Set());
+    setRetileCandidates([]);
+    setRetileError(null);
+    setEditError(null);
   }, []);
 
   const runStabilityCheck = useCallback((grid: string[][][], immediate = false) => {
@@ -128,18 +144,32 @@ export function useVoxelEditor({
     stabilityTimer.current = setTimeout(update, 200);
   }, []);
 
+  const showGrid = useCallback((grid: string[][][]) => {
+    setEditedGrid(grid);
+    setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
+    runStabilityCheck(grid);
+  }, [fullLegend, model.name, runStabilityCheck]);
+
   const commitGridChange = useCallback(
     (newGrid: string[][][]) => {
       const normalized = normalizeGridZ(newGrid);
       if (normalized.offsetZ > 0) {
         setActiveLayer((layer) => Math.max(0, layer - normalized.offsetZ));
       }
+      if (editedGrid) {
+        setUndoStack((stack) => [...stack.slice(-49), cloneGrid(editedGrid)]);
+      }
+      setRedoStack([]);
       setEditedGrid(normalized.grid);
       setChangeCount((count) => count + 1);
       setVoxelModel(gridTo1x1Model(normalized.grid, fullLegend, model.name));
+      setSelectedCells(new Set());
+      setRetileCandidates([]);
+      setRetileError(null);
+      setEditError(null);
       runStabilityCheck(normalized.grid);
     },
-    [fullLegend, model.name, runStabilityCheck],
+    [editedGrid, fullLegend, model.name, runStabilityCheck],
   );
 
   const enterEdit = useCallback((tool: EditTool) => {
@@ -151,9 +181,37 @@ export function useVoxelEditor({
     setEditedGrid(grid);
     setChangeCount(0);
     setVoxelModel(gridTo1x1Model(grid, fullLegend, model.name));
+    setUndoStack([]);
+    setRedoStack([]);
+    setSelectedCells(new Set());
+    setRetileCandidates([]);
+    setRetileError(null);
+    setEditError(null);
     runStabilityCheck(grid, true);
     return true;
   }, [fullLegend, model.name, runStabilityCheck, voxelData]);
+
+  const undo = useCallback(() => {
+    if (!editedGrid || undoStack.length === 0) return;
+    const previous = undoStack[undoStack.length - 1];
+    setUndoStack((stack) => stack.slice(0, -1));
+    setRedoStack((stack) => [cloneGrid(editedGrid), ...stack].slice(0, 50));
+    setChangeCount((count) => Math.max(0, count - 1));
+    setSelectedCells(new Set());
+    setRetileCandidates([]);
+    showGrid(cloneGrid(previous));
+  }, [editedGrid, showGrid, undoStack]);
+
+  const redo = useCallback(() => {
+    if (!editedGrid || redoStack.length === 0) return;
+    const next = redoStack[0];
+    setRedoStack((stack) => stack.slice(1));
+    setUndoStack((stack) => [...stack.slice(-49), cloneGrid(editedGrid)]);
+    setChangeCount((count) => count + 1);
+    setSelectedCells(new Set());
+    setRetileCandidates([]);
+    showGrid(cloneGrid(next));
+  }, [editedGrid, redoStack, showGrid]);
 
   const applyEdit = useCallback(async () => {
     if (!editedGrid || !voxelData) return;
@@ -183,21 +241,79 @@ export function useVoxelEditor({
 
       if (!res.ok) {
         const data = await res.json();
-        console.error('Re-optimization failed:', data.error);
+        setEditError(userFacingErrorMessage(data, 'Could not rebuild the edited bricks.'));
         return;
       }
 
       resetEditState();
       onModelUpdate?.(await res.json() as BrickModelData);
     } catch (err) {
-      console.error('Re-optimization error:', err);
+      setEditError(err instanceof Error ? err.message : 'Could not rebuild the edited bricks.');
     } finally {
       setApplying(false);
     }
   }, [editedGrid, fullLegend, model, onModelUpdate, resetEditState, voxelData]);
 
+  const retileSelection = useCallback(async () => {
+    if (!voxelData || selectedCells.size === 0 || retileLoading) return;
+    if (changeCount > 0) {
+      setRetileError('Apply your current edits before retiling this section.');
+      return;
+    }
+    setRetileLoading(true);
+    setRetileError(null);
+    setRetileCandidates([]);
+    try {
+      const selectedStyles = [retileStyle, 'balanced', 'fewer_parts', 'stronger']
+        .filter((style, index, all) => all.indexOf(style) === index) as RetileStyle[];
+      const res = await fetch('/api/retile-selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          selectedCells: [...selectedCells].map((cell) => {
+            const [x, y, z] = cell.split(',').map(Number);
+            return { x, y, z };
+          }),
+          styles: selectedStyles,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(userFacingErrorMessage(data, 'Could not retile this selection.'));
+      setRetileCandidates(data.candidates ?? []);
+    } catch (err) {
+      setRetileError(err instanceof Error ? err.message : 'Could not retile this selection.');
+    } finally {
+      setRetileLoading(false);
+    }
+  }, [changeCount, model, retileLoading, retileStyle, selectedCells, voxelData]);
+
+  const applyRetileCandidate = useCallback((candidate: RetileCandidate) => {
+    resetEditState();
+    onModelUpdate?.(candidate.model);
+  }, [onModelUpdate, resetEditState]);
+
   const handleVoxelAction = useCallback((gx: number, gy: number, gz: number, shiftKey: boolean) => {
     if (!editMode || !editedGrid) return;
+
+    if (editTool === 'select') {
+      const sizeX = editedGrid.length;
+      const sizeY = sizeX > 0 ? editedGrid[0].length : 0;
+      const sizeZ = sizeY > 0 ? editedGrid[0][0].length : 0;
+      if (gx < 0 || gx >= sizeX || gy < 0 || gy >= sizeY || gz < 0 || gz >= sizeZ) return;
+      const currentSymbol = editedGrid[gx][gy][gz];
+      if (currentSymbol === '0' || currentSymbol === '*') return;
+      const next = new Set<string>();
+      if (shiftKey) {
+        for (const cell of floodFill(editedGrid, gx, gy, gz)) next.add(cell);
+      } else {
+        next.add(`${gx},${gy},${gz}`);
+      }
+      setSelectedCells(next);
+      setRetileCandidates([]);
+      setRetileError(null);
+      return;
+    }
 
     if (editTool === 'paint') {
       if (!selectedColor) return;
@@ -289,7 +405,7 @@ export function useVoxelEditor({
     if (!editMode) return;
     const metadata = brick.metadata;
     if (metadata?.gx == null || metadata?.gy == null || metadata?.gz == null) return;
-    handleVoxelAction(metadata.gx, metadata.gy, metadata.gz, shiftKey);
+    handleVoxelAction(metadata.gx, metadata.gz, metadata.gy, shiftKey);
   }, [editMode, handleVoxelAction]);
 
   const handleGridCellClick = useCallback((gx: number, gy: number, gz: number) => {
@@ -309,6 +425,24 @@ export function useVoxelEditor({
     editedGrid,
     changeCount,
     applying,
+    editError,
+    undo,
+    redo,
+    undoDisabled: undoStack.length === 0,
+    redoDisabled: redoStack.length === 0,
+    selectedCells,
+    clearSelection: () => {
+      setSelectedCells(new Set());
+      setRetileCandidates([]);
+      setRetileError(null);
+    },
+    retileStyle,
+    setRetileStyle,
+    retileCandidates,
+    retileLoading,
+    retileError,
+    retileSelection,
+    applyRetileCandidate,
     refImages,
     addReferenceImages: (urls: string[]) => setRefImages((prev) => [...prev, ...urls]),
     removeReferenceImage: (index: number) => setRefImages((prev) => prev.filter((_, i) => i !== index)),

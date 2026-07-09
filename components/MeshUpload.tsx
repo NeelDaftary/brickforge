@@ -4,6 +4,7 @@ import { useState, useCallback } from 'react';
 import type { PipelineStage } from '@/lib/pipeline/types';
 import { MESH_UPLOAD_ACCEPT, isSupportedUploadExtension } from '@/lib/pipeline/mesh-formats';
 import { buildGuardrails, fileGuardrails, type UploadGuardrail } from '@/lib/pipeline/upload-guardrails';
+import { userFacingErrorMessage } from '@/lib/pipeline/user-facing-messages';
 import { FileDropZone } from './shared/FileDropZone';
 
 interface MeshBounds {
@@ -103,7 +104,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
 
       const data = await res.json();
       if (!res.ok) {
-        throw new Error(data.error || 'Failed to read mesh dimensions');
+        throw new Error(userFacingErrorMessage(data, 'Failed to read mesh dimensions.'));
       }
 
       setBounds(data);
@@ -145,7 +146,7 @@ export function MeshUpload({ onResult, onError, onStageChange, disabled }: MeshU
       const data = await res.json();
 
       if (!res.ok) {
-        throw new Error(data.error || 'Upload processing failed');
+        throw new Error(userFacingErrorMessage(data, 'Upload processing failed.'));
       }
 
       onStageChange('optimizing_bricks');

@@ -1,0 +1,113 @@
+{
+  "name": "Demo: Little Creature",
+  "description": "A small organic-ish build with a weak overhang to try Repair, Select, Retile, and Paint.",
+  "totalBricks": 6,
+  "bricks": [
+    {
+      "id": "demo-creature-body-1",
+      "brickId": "b_2x4",
+      "position": [-0.5, 0, -0.5],
+      "rotation": 0,
+      "studWidth": 4,
+      "studDepth": 2,
+      "color": "#2DBE2D",
+      "step": 1,
+      "metadata": { "gx": 1, "gy": 0, "gz": 1, "gw": 4, "gd": 2 }
+    },
+    {
+      "id": "demo-creature-head",
+      "brickId": "b_2x2",
+      "position": [0.5, 3, -0.5],
+      "rotation": 0,
+      "studWidth": 2,
+      "studDepth": 2,
+      "color": "#2DBE2D",
+      "step": 2,
+      "metadata": { "gx": 2, "gy": 1, "gz": 1, "gw": 2, "gd": 2 }
+    },
+    {
+      "id": "demo-creature-tail",
+      "brickId": "b_1x2",
+      "position": [-2, 3, -0.5],
+      "rotation": 0,
+      "studWidth": 2,
+      "studDepth": 1,
+      "color": "#2DBE2D",
+      "step": 2,
+      "metadata": { "gx": 0, "gy": 1, "gz": 1, "gw": 2, "gd": 1 }
+    },
+    {
+      "id": "demo-creature-ear-l",
+      "brickId": "b_1x1",
+      "position": [0, 6, -1],
+      "rotation": 0,
+      "studWidth": 1,
+      "studDepth": 1,
+      "color": "#FFD500",
+      "step": 3,
+      "metadata": { "gx": 2, "gy": 2, "gz": 1, "gw": 1, "gd": 1 }
+    },
+    {
+      "id": "demo-creature-ear-r",
+      "brickId": "b_1x1",
+      "position": [1, 6, -1],
+      "rotation": 0,
+      "studWidth": 1,
+      "studDepth": 1,
+      "color": "#FFD500",
+      "step": 3,
+      "metadata": { "gx": 3, "gy": 2, "gz": 1, "gw": 1, "gd": 1 }
+    },
+    {
+      "id": "demo-creature-overhang",
+      "brickId": "b_1x2",
+      "position": [2.5, 6, -0.5],
+      "rotation": 0,
+      "studWidth": 2,
+      "studDepth": 1,
+      "color": "#0059CF",
+      "step": 3,
+      "metadata": { "gx": 4, "gy": 2, "gz": 1, "gw": 2, "gd": 1 }
+    }
+  ],
+  "voxelData": {
+    "gridSize": 6,
+    "colorLegend": { "G": "#2DBE2D", "Y": "#FFD500", "B": "#0059CF" },
+    "grid": [
+      [["0", "0", "0"], ["0", "G", "0"], ["0", "0", "0"], ["0", "0", "0"]],
+      [["0", "0", "0"], ["G", "G", "0"], ["G", "0", "0"], ["0", "0", "0"]],
+      [["0", "0", "0"], ["G", "G", "Y"], ["G", "G", "0"], ["0", "0", "0"]],
+      [["0", "0", "0"], ["G", "G", "Y"], ["G", "G", "0"], ["0", "0", "0"]],
+      [["0", "0", "0"], ["G", "0", "B"], ["G", "0", "0"], ["0", "0", "0"]],
+      [["0", "0", "0"], ["0", "0", "B"], ["0", "0", "0"], ["0", "0", "0"]]
+    ]
+  },
+  "diagnostics": {
+    "pipeline": "brickforge-v3",
+    "timingMs": 0,
+    "voxelSize": 0.06,
+    "gridSize": 6,
+    "voxelLayers": 3,
+    "totalBricks": 6,
+    "shelled": false,
+    "brickerEngine": "stability_v2",
+    "layout": {
+      "connectedComponents": 1,
+      "floatingBricks": 0,
+      "detachedFloatingBricks": 0,
+      "unsupportedBricks": 1,
+      "criticalCantileverRegions": 0,
+      "weakCantilevers": 1,
+      "supportedCantilevers": 1,
+      "articulationBricks": 0,
+      "bridgeEdges": 0,
+      "internalSupportBricks": 0,
+      "internalSupportVoxels": 0,
+      "healthScore": 72,
+      "gateStatus": "warn",
+      "seamAlignment": { "repeatedAdjacentLayerSeams": 0, "maxVerticalRun": 2 }
+    },
+    "layoutIds": { "unsupported": ["demo-creature-overhang"], "weakCantilever": ["demo-creature-overhang"] },
+    "warnings": ["Stability: 1 unsupported area remains. Try Retile Selection or manual support before printing."]
+  }
+}

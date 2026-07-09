@@ -8,6 +8,24 @@ import { SavedBuilds } from '@/components/SavedBuilds';
 import type { GeneratedModel } from '@/lib/pipeline/model-diagnostics';
 import type { PipelineStage } from '@/lib/pipeline/types';
 
+const DEMO_BUILDS = [
+  {
+    title: 'Starter Block',
+    description: 'Clean export path',
+    href: '/demos/starter-block.brickforge.json',
+  },
+  {
+    title: 'Little Creature',
+    description: 'Try repair + retile',
+    href: '/demos/repair-creature.brickforge.json',
+  },
+  {
+    title: 'Color Mosaic',
+    description: 'Paint and save',
+    href: '/demos/color-mosaic.brickforge.json',
+  },
+];
+
 interface StartWorkspaceProps {
   isWorking: boolean;
   stage: PipelineStage;
@@ -72,6 +90,21 @@ export function StartWorkspace({
     e.target.value = '';
   }
 
+  async function handleLoadDemo(href: string) {
+    try {
+      onStageChange('validating');
+      const res = await fetch(href);
+      if (!res.ok) throw new Error('Demo file could not be loaded');
+      const model = validateImportedBuild(await res.json());
+      onResult(model);
+      onStageChange('ready');
+      onError(null);
+    } catch (err) {
+      onError(err instanceof Error ? `Demo failed: ${err.message}` : 'Demo failed to load');
+      onStageChange('error');
+    }
+  }
+
   return (
     <>
       <SavedBuilds
@@ -79,6 +112,32 @@ export function StartWorkspace({
         refreshKey={savedBuildsRefreshKey}
       />
       <div className="w-full flex flex-col gap-7">
+        <section className="w-full flex flex-col gap-3">
+          <div className="flex items-end justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-extrabold uppercase tracking-[1.5px] text-[#1A1A1A]">
+                Try A Demo
+              </h2>
+              <p className="text-xs text-[#777777] mt-1">
+                Open a polished BrickForge build and test the improvement loop.
+              </p>
+            </div>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {DEMO_BUILDS.map((demo) => (
+              <button
+                key={demo.href}
+                onClick={() => { void handleLoadDemo(demo.href); }}
+                disabled={isWorking}
+                className="min-h-[78px] rounded-card border-2 border-border bg-surface px-4 py-3 text-left transition-all hover:border-brick-red disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="text-sm font-extrabold text-[#1A1A1A]">{demo.title}</div>
+                <div className="mt-1 text-xs text-[#777777]">{demo.description}</div>
+              </button>
+            ))}
+          </div>
+        </section>
+
         <section className="w-full flex flex-col gap-3">
           <div className="flex items-end justify-between gap-4">
             <div>
@@ -158,11 +217,12 @@ export function StartWorkspace({
       )}
 
       {error && (
-        <div className="w-full py-2.5 px-4 bg-[#FFF8E1] border border-[#FFE082] rounded-[10px] text-sm text-[#666666]">
-          {error}
+        <div className="w-full rounded-lg border border-[#FFCDD2] bg-[#FFEBEE] px-4 py-3 text-sm text-[#7F1D1D]">
+          <div className="text-xs font-bold uppercase tracking-[0.8px]">Needs attention</div>
+          <div className="mt-1 leading-snug">{error}</div>
           <button
             onClick={onReset}
-            className="ml-2 text-brick-red font-semibold hover:underline"
+            className="mt-2 text-xs font-bold text-brick-red hover:underline"
           >
             Try again
           </button>

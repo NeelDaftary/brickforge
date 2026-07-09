@@ -130,8 +130,8 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairP
       if (!editor.canEdit) return;
       setRepairMode(false);
       if (editor.editMode) {
-        editor.setEditTool('add');
-      } else if (editor.enterEdit('add')) {
+        editor.setEditTool('select');
+      } else if (editor.enterEdit('select')) {
         setViewMode('complete');
       }
     }
@@ -172,6 +172,7 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairP
               diagnosticOverlayMode={activeOverlayMode}
               focusedBrickIds={focusedBrickIds}
               previewBricks={previewBricks}
+              selectedCells={editor.selectedCells}
             />
           </Canvas>
 
@@ -245,6 +246,19 @@ export function LegoCanvas({ model, diagnosticBrickIds, focusedBrickIds, repairP
             onCancel={cancelEdit}
             changeCount={editor.changeCount}
             applying={editor.applying}
+            undoDisabled={editor.undoDisabled}
+            redoDisabled={editor.redoDisabled}
+            onUndo={editor.undo}
+            onRedo={editor.redo}
+            selectionCount={editor.selectedCells.size}
+            onClearSelection={editor.clearSelection}
+            retileStyle={editor.retileStyle}
+            onSetRetileStyle={editor.setRetileStyle}
+            retileCandidates={editor.retileCandidates}
+            retileLoading={editor.retileLoading}
+            retileError={editor.retileError ?? editor.editError}
+            onRetileSelection={editor.retileSelection}
+            onApplyRetileCandidate={editor.applyRetileCandidate}
           />
         )}
 

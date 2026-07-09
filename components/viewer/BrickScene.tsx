@@ -48,6 +48,7 @@ interface BrickSceneProps {
   diagnosticOverlayMode?: DiagnosticOverlayMode;
   focusedBrickIds?: string[];
   previewBricks?: BrickInstance[];
+  selectedCells?: Set<string>;
 }
 
 export function BrickScene({
@@ -68,6 +69,7 @@ export function BrickScene({
   diagnosticOverlayMode = 'off',
   focusedBrickIds,
   previewBricks = [],
+  selectedCells,
 }: BrickSceneProps) {
   // Layer view only applies to add/erase — paint mode shows all layers
   const hasLayerView = editMode && activeLayer != null && editTool !== 'paint';
@@ -105,13 +107,13 @@ export function BrickScene({
 
       {model.bricks.map((brick) => {
         if (viewMode === 'step' && brick.step > currentStep) return null;
-        const brickGz = brick.metadata?.gz;
+        const brickLayer = brick.metadata?.gy;
 
         // Layer-aware visibility in edit mode (add/erase only, not paint)
         let hidden = false;
         let adjacentLayer = false;
-        if (hasLayerView && brickGz != null) {
-          const dist = Math.abs(brickGz - activeLayer);
+        if (hasLayerView && brickLayer != null) {
+          const dist = Math.abs(brickLayer - activeLayer);
           if (dist === 0) {
             // Active layer — full visibility
           } else if (dist === 1 && showAdjacentLayers) {
@@ -124,10 +126,20 @@ export function BrickScene({
         }
 
         const faded = viewMode === 'step' && brick.step < currentStep;
-        const highlighted = !editMode && viewMode === 'step' && brick.step === currentStep;
+        const cellKey = brickLayer != null ? `${brick.metadata!.gx},${brick.metadata!.gz},${brickLayer}` : '';
+        let selected = Boolean(editMode && selectedCells?.has(cellKey));
+        if (!selected && editMode && selectedCells && brick.metadata?.gx != null && brick.metadata?.gy != null && brick.metadata?.gz != null) {
+          const gw = brick.metadata.gw ?? brick.studWidth ?? 1;
+          const gd = brick.metadata.gd ?? brick.studDepth ?? 1;
+          for (let dx = 0; dx < gw && !selected; dx++) {
+            for (let dy = 0; dy < gd && !selected; dy++) {
+              selected = selectedCells.has(`${brick.metadata.gx + dx},${brick.metadata.gz + dy},${brick.metadata.gy}`);
+            }
+          }
+        }
+        const highlighted = selected || (!editMode && viewMode === 'step' && brick.step === currentStep);
 
         // Stability flags
-        const cellKey = brickGz != null ? `${brick.metadata!.gx},${brick.metadata!.gy},${brickGz}` : '';
         const diagnosticHit = selectedDiagnosticIds.has(brick.id);
         const diagnosticMuted = diagnosticFocusActive && !diagnosticHit;
         const unstable = (editMode && unstableCells?.has(cellKey)) || (diagnosticHit && dangerousDiagnosticOverlay);

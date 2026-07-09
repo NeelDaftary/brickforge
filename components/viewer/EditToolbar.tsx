@@ -1,8 +1,9 @@
 'use client';
 
 import { COLOR_PALETTE } from '@/lib/engine/color-palette';
+import type { RetileCandidate, RetileStyle } from '@/lib/pipeline_v2/retile-selection';
 
-export type EditTool = 'paint' | 'add' | 'erase';
+export type EditTool = 'select' | 'paint' | 'add' | 'erase';
 
 interface EditToolbarProps {
   editTool: EditTool;
@@ -18,9 +19,23 @@ interface EditToolbarProps {
   onCancel: () => void;
   changeCount: number;
   applying?: boolean;
+  undoDisabled?: boolean;
+  redoDisabled?: boolean;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  selectionCount?: number;
+  onClearSelection?: () => void;
+  retileStyle?: RetileStyle;
+  onSetRetileStyle?: (style: RetileStyle) => void;
+  retileCandidates?: RetileCandidate[];
+  retileLoading?: boolean;
+  retileError?: string | null;
+  onRetileSelection?: () => void;
+  onApplyRetileCandidate?: (candidate: RetileCandidate) => void;
 }
 
 const HINT_TEXT: Record<EditTool, string> = {
+  select: 'Click a brick to select (Shift+click selects connected color)',
   paint: 'Click brick to paint (Shift+click to fill region)',
   add: 'Click empty cell to place brick',
   erase: 'Click brick to remove (Shift+click to erase region)',
@@ -40,15 +55,29 @@ export function EditToolbar({
   onCancel,
   changeCount,
   applying = false,
+  undoDisabled = true,
+  redoDisabled = true,
+  onUndo,
+  onRedo,
+  selectionCount = 0,
+  onClearSelection,
+  retileStyle = 'balanced',
+  onSetRetileStyle,
+  retileCandidates = [],
+  retileLoading = false,
+  retileError = null,
+  onRetileSelection,
+  onApplyRetileCandidate,
 }: EditToolbarProps) {
   const showPalette = editTool === 'paint' || editTool === 'add';
+  const showBuildControls = editTool !== 'paint';
 
   return (
     <div className="px-4 py-3 border-t-2 border-border bg-surface flex flex-col gap-2.5">
-      {/* Build mode: add/erase toggle */}
-      {editTool !== 'paint' && (
-        <div className="flex items-center gap-1">
+      {showBuildControls && (
+        <div className="flex flex-wrap items-center gap-1">
           {([
+            { tool: 'select' as EditTool, label: 'Select' },
             { tool: 'add' as EditTool, label: 'Add' },
             { tool: 'erase' as EditTool, label: 'Erase' },
           ]).map(({ tool, label }) => (
@@ -67,8 +96,7 @@ export function EditToolbar({
         </div>
       )}
 
-      {/* Layer navigation (build mode only) */}
-      {editTool !== 'paint' && (
+      {showBuildControls && (
         <div className="flex items-center gap-2">
           <span className="text-xs font-semibold text-[#888888] uppercase tracking-wider">Layer</span>
           <button
@@ -105,11 +133,27 @@ export function EditToolbar({
         <span className="text-xs font-semibold text-[#888888] uppercase tracking-wider">
           {HINT_TEXT[editTool]}
         </span>
-        {changeCount > 0 && (
-          <span className="text-xs font-medium text-[#666666]">
-            {changeCount} {changeCount === 1 ? 'change' : 'changes'}
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {changeCount > 0 && (
+            <span className="text-xs font-medium text-[#666666]">
+              Unsaved edits · {changeCount}
+            </span>
+          )}
+          <button
+            onClick={onUndo}
+            disabled={undoDisabled || applying}
+            className="px-2 py-1 text-[11px] font-bold rounded-md border border-[#E0DFD9] text-[#666666] disabled:opacity-35"
+          >
+            Undo
+          </button>
+          <button
+            onClick={onRedo}
+            disabled={redoDisabled || applying}
+            className="px-2 py-1 text-[11px] font-bold rounded-md border border-[#E0DFD9] text-[#666666] disabled:opacity-35"
+          >
+            Redo
+          </button>
+        </div>
       </div>
 
       {/* Color palette (shown for paint and add) */}
@@ -133,6 +177,71 @@ export function EditToolbar({
               />
             );
           })}
+        </div>
+      )}
+
+      {editTool === 'select' && (
+        <div className="grid gap-2 rounded-lg border border-[#E4E2DA] bg-white px-3 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs font-bold text-[#1A1A1A]">
+              {selectionCount > 0 ? `${selectionCount} selected cell${selectionCount === 1 ? '' : 's'}` : 'No selection yet'}
+            </div>
+            <button
+              onClick={onClearSelection}
+              disabled={selectionCount === 0 || applying}
+              className="text-[11px] font-bold text-[#777777] hover:text-brick-red disabled:opacity-35"
+            >
+              Clear
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={retileStyle}
+              onChange={(event) => onSetRetileStyle?.(event.target.value as RetileStyle)}
+              className="min-w-[150px] rounded-md border border-[#DDDDDD] bg-white px-2 py-1.5 text-xs font-semibold text-[#555555]"
+            >
+              <option value="balanced">Balanced</option>
+              <option value="fewer_parts">Fewer pieces</option>
+              <option value="stronger">Stronger</option>
+            </select>
+            <button
+              onClick={onRetileSelection}
+              disabled={selectionCount === 0 || retileLoading || applying}
+              className="px-3 py-1.5 text-xs font-bold text-white bg-brick-red rounded-lg disabled:opacity-40"
+            >
+              {retileLoading ? 'Retiling...' : 'Retile Selection'}
+            </button>
+          </div>
+          {retileError && (
+            <div className="text-[11px] leading-snug text-[#B71C1C]">{retileError}</div>
+          )}
+          {retileCandidates.length > 0 && (
+            <div className="grid gap-2">
+              {retileCandidates.map((candidate) => (
+                <div key={candidate.id} className="rounded-md border border-[#E4E2DA] px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-[#1A1A1A]">
+                        {candidate.label}
+                        {candidate.recommended ? ' · Best start' : ''}
+                      </div>
+                      <div className="text-[11px] text-[#777777]">{candidate.description}</div>
+                    </div>
+                    <button
+                      onClick={() => onApplyRetileCandidate?.(candidate)}
+                      disabled={applying}
+                      className="px-3 py-1.5 text-[11px] font-bold rounded-md bg-[#1A1A1A] text-white disabled:opacity-40"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[11px] text-[#666666]">
+                    Bricks {candidate.metrics.brickCountBefore} → {candidate.metrics.brickCountAfter} · Unsupported {candidate.metrics.unsupportedBefore} → {candidate.metrics.unsupportedAfter}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

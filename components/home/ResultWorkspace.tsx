@@ -5,6 +5,7 @@ import { BuildHealth } from '@/components/BuildHealth';
 import { GuidedRepairQueue } from '@/components/GuidedRepairQueue';
 import { LegoCanvas } from '@/components/viewer/LegoCanvas';
 import type { GeneratedModel } from '@/lib/pipeline/model-diagnostics';
+import { buildNotesFromWarnings, userFacingErrorMessage, type BuildNote } from '@/lib/pipeline/user-facing-messages';
 import type { RepairPreview } from '@/lib/pipeline_v2/guided-repair-v2';
 
 interface ResultWorkspaceProps {
@@ -36,6 +37,40 @@ function downloadBlob(blob: Blob, fileName: string) {
 
 function safeFileName(name: string, fallback = 'build'): string {
   return name.replace(/[^a-zA-Z0-9_\- ]/g, '').trim().replace(/\s+/g, '_') || fallback;
+}
+
+function BuildNotes({ warnings }: { warnings: string[] }) {
+  const notes = buildNotesFromWarnings(warnings);
+  if (notes.length === 0) return null;
+
+  const toneClasses: Record<BuildNote['tone'], string> = {
+    info: 'bg-[#F5F5F0] border-[#E4E2DA] text-[#555555]',
+    warning: 'bg-[#FFF8E1] border-[#FFE082] text-[#8A5A00]',
+    danger: 'bg-[#FFEBEE] border-[#FFCDD2] text-[#B71C1C]',
+  };
+
+  return (
+    <div className="w-full grid gap-2">
+      {notes.map((note) => (
+        <div key={note.category} className={`rounded-lg border px-4 py-3 ${toneClasses[note.tone]}`}>
+          <div className="text-xs font-bold uppercase tracking-[0.8px]">{note.title}</div>
+          <div className="mt-1 text-[12px] leading-snug">{note.message}</div>
+          {note.details && note.details.length > 0 && (
+            <details className="mt-2">
+              <summary className="cursor-pointer text-[11px] font-bold uppercase tracking-[0.7px] opacity-75">
+                Details
+              </summary>
+              <div className="mt-1 grid gap-1 text-[11px] leading-snug opacity-80">
+                {note.details.map((detail, index) => (
+                  <div key={`${note.category}-${index}`}>{detail}</div>
+                ))}
+              </div>
+            </details>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 export function ResultWorkspace({
@@ -89,7 +124,7 @@ export function ResultWorkspace({
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Export failed');
+        throw new Error(userFacingErrorMessage(data, 'Export failed.'));
       }
 
       downloadBlob(await res.blob(), `${safeFileName(name)}.zip`);
@@ -111,11 +146,7 @@ export function ResultWorkspace({
       <div className="w-full py-2.5 px-4 bg-[#F5F5F0] border border-[#E4E2DA] rounded-lg text-[12px] leading-snug text-[#666666] text-center">
         Review build health, color, and fit before treating this as a final physical build. Organic models can still need manual support or a different scale.
       </div>
-      {visibleWarnings.map((warning, i) => (
-        <div key={i} className="w-full py-2.5 px-4 bg-[#FFF8E1] border border-[#FFE082] rounded-lg text-sm text-[#CC8800]">
-          {warning}
-        </div>
-      ))}
+      <BuildNotes warnings={visibleWarnings} />
       <BuildHealth diagnostics={model.diagnostics} />
       <LegoCanvas
         model={model}
@@ -136,6 +167,7 @@ export function ResultWorkspace({
         )}
         onModelUpdate={(newModel) => {
           onModelChange({ ...model, ...newModel });
+          onSaveMessage('Rebuilt. Export uses the current edits.');
         }}
       />
       <div className="w-full flex gap-3">
